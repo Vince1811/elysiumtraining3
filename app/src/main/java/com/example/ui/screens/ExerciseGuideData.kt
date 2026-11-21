@@ -198,7 +198,8 @@ val ExerciseGuidesList = listOf(
             "Control: Slowly lower the handles back to the start position. Keep tension on your chest.",
             "Repeat: Do the required reps with good form and a steady tempo."
         ),
-        executionTips = "Set the pulleys low and bring your hands up and across in front of your chest. Focus on squeezing your upper chest at the top of the movement."
+        executionTips = "Set the pulleys low and bring your hands up and across in front of your chest. Focus on squeezing your upper chest at the top of the movement.",
+        publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Done/Cable%20Crossover_%20Upper%20Chest%20Guide.png"
     ),
     ExerciseGuideInfo(
         id = "chest_dips",
@@ -214,7 +215,8 @@ val ExerciseGuidesList = listOf(
             "Push: Drive through your hands and push yourself back up to the start position.",
             "Repeat: Do the required reps with good form and a controlled tempo."
         ),
-        executionTips = "Lean forward and keep your chest up to target your chest. Avoid staying too upright, which shifts more work to your triceps."
+        executionTips = "Lean forward and keep your chest up to target your chest. Avoid staying too upright, which shifts more work to your triceps.",
+        publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Done/Chest%20Dips%20Fitness%20Infographic.png"
     ),
     ExerciseGuideInfo(
         id = "landmine_press",
@@ -263,6 +265,22 @@ val ExerciseGuidesList = listOf(
         executionTips = "Keep chest upright and proud; avoid using momentum or rocking back and forth."
     ),
     ExerciseGuideInfo(
+        id = "bent_over_barbell_row",
+        title = "BENT-OVER BARBELL ROW",
+        category = "Upper Body Strength & Hypertrophy",
+        accentColor = 0xFF00E5FFL,
+        drawableResId = R.drawable.guide_cable_row,
+        targetMuscles = listOf("Middle back (rhomboids & traps)", "Lats (latissimus dorsi)", "Rear deltoids", "Erector spinae", "Biceps"),
+        steps = listOf(
+            "Setup: Stand with feet shoulder-width apart and grip the barbell slightly wider than shoulder width with an overhand (or underhand) grip.",
+            "Hinge Position: Push hips back and hinge torso forward to roughly 45 degrees while keeping your back flat, chest proud, and core braced.",
+            "Pull: Drive elbows back and pull the barbell smoothly toward your lower chest or upper abdomen, squeezing your shoulder blades together.",
+            "Control Return: Lower the barbell slowly back to full arm extension without letting your lower back round or your torso jerk upward."
+        ),
+        executionTips = "Keep your spine neutral and brace your core throughout every rep; initiate the pull by retracting your shoulder blades and driving elbows behind your ribs.",
+        publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Done/Bent-Over%20Barbell%20Row%20Guide_%20Form%2C%20Steps%2C%20and%20Muscles.png"
+    ),
+    ExerciseGuideInfo(
         id = "overhead_press",
         title = "OVERHEAD SHOULDER PRESS",
         category = "Upper Body Strength & Hypertrophy",
@@ -306,6 +324,22 @@ val ExerciseGuidesList = listOf(
             "Control the weight back to 90° starting position."
         ),
         executionTips = "Do not allow elbows to drift forward or backward; keep the upper arm completely stationary."
+    ),
+    ExerciseGuideInfo(
+        id = "tricep_rope_pushdown",
+        title = "CABLE ROPE TRICEP PUSHDOWNS",
+        category = "Upper Body Strength & Hypertrophy",
+        accentColor = 0xFF00E5FFL,
+        drawableResId = R.drawable.guide_tricep_pushdown,
+        targetMuscles = listOf("Triceps (lateral, long & medial heads)", "Forearms"),
+        steps = listOf(
+            "Setup: Attach a double-ended rope to a high cable pulley and grip each side near the rubber stoppers with palms facing each other.",
+            "Stance: Take a slight step back, hinge slightly forward at the hips, and pin your elbows tightly against your sides.",
+            "Push Down & Flare: Extend your elbows to press the rope downward, pulling the ends slightly apart at the bottom for a strong tricep squeeze.",
+            "Control Return: Slowly bend only at the elbows until your forearms pass 90 degrees without letting your upper arms drift."
+        ),
+        executionTips = "Keep elbows locked at your ribs and separate the rope handles outward at full lockout to maximize lateral head contraction.",
+        publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Cable%20Rope%20Pushdowns_%20Triceps%20Guide.png"
     ),
 
     // Row 2 - Lower Body & Core (Green 0xFF00E676)
@@ -523,7 +557,8 @@ val ExerciseGuidesList = listOf(
             "Lower: Lower the bar in a controlled way until your arms are fully extended.",
             "Repeat: Do the required reps with good form."
         ),
-        executionTips = "Build bigger and stronger arms: keep elbows close to your sides and lower the bar in a slow, controlled tempo."
+        executionTips = "Build bigger and stronger arms: keep elbows close to your sides and lower the bar in a slow, controlled tempo.",
+        publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Done/Barbell%20Bicep%20Curls%20Guide.png"
     ),
     ExerciseGuideInfo(
         id = "bicep_21s",
@@ -714,7 +749,8 @@ fun findExerciseGuide(exerciseName: String): ExerciseGuideInfo {
         // Chest Flys / Pec Deck / Cable Crossover / Landmine / Dips
         clean.contains("pec deck") ->
             ExerciseGuidesList.first { it.id == "pec_deck" }
-        clean.contains("crossover") || (clean.contains("cable") && clean.contains("fly")) ->
+        (clean.contains("crossover") || (clean.contains("cable") && (clean.contains("fly") || clean.contains("flies")))) &&
+            !clean.contains("rear") && !clean.contains("reverse") && !clean.contains("high-to-low") && !clean.contains("high to low") ->
             ExerciseGuidesList.first { it.id == "cable_crossover" }
         (clean.contains("fly") || clean.contains("flies")) && !clean.contains("rear") && !clean.contains("reverse") && (clean.contains("chest") || clean.contains("dumbbell") || clean.contains("floor") || clean.contains("flat")) ->
             ExerciseGuidesList.first { it.id == "chest_fly_dumbbell" }
@@ -770,7 +806,18 @@ fun findExerciseGuide(exerciseName: String): ExerciseGuideInfo {
         clean.contains("lat pull") || clean.contains("pulldown") ->
             ExerciseGuidesList.first { it.id == "lat_pulldown" }
 
-        // Cable Row / Rows
+        // Cable Row / Bent-Over Barbell Row / Rows
+        ((clean.contains("bent-over") || clean.contains("bent over") || clean.contains("barbell")) &&
+            clean.contains("row") &&
+            !clean.contains("dumbbell") &&
+            !clean.contains("cable") &&
+            !clean.contains("upright") &&
+            !clean.contains("inverted") &&
+            !clean.contains("band") &&
+            !clean.contains("smith") &&
+            !clean.contains("chest-supported") &&
+            !clean.contains("rear delt")) ->
+            ExerciseGuidesList.first { it.id == "bent_over_barbell_row" }
         clean.contains("row") ->
             ExerciseGuidesList.first { it.id == "cable_row" }
 
@@ -783,9 +830,11 @@ fun findExerciseGuide(exerciseName: String): ExerciseGuideInfo {
             ExerciseGuidesList.first { it.id == "lateral_raise" }
 
         // Pushdown / Dips
-        clean.contains("pushdown") || (clean.contains("tricep") && clean.contains("cable")) ->
+        clean.contains("rope") && (clean.contains("pushdown") || clean.contains("push down") || clean.contains("push-down") || clean.contains("pressdown") || clean.contains("press down")) ->
+            ExerciseGuidesList.first { it.id == "tricep_rope_pushdown" }
+        clean.contains("pushdown") || clean.contains("push down") || clean.contains("push-down") || clean.contains("pressdown") || (clean.contains("tricep") && clean.contains("cable") && !clean.contains("kickback") && !clean.contains("overhead")) ->
             ExerciseGuidesList.first { it.id == "tricep_pushdown" }
-        clean.contains("chest dip") ->
+        clean.contains("chest") && clean.contains("dip") ->
             ExerciseGuidesList.first { it.id == "chest_dips" }
         clean.contains("dip") ->
             ExerciseGuidesList.first { it.id == "tricep_dip" }
@@ -797,7 +846,7 @@ fun findExerciseGuide(exerciseName: String): ExerciseGuideInfo {
             ExerciseGuidesList.first { it.id == "concentration_curl" }
         clean.contains("hammer") ->
             ExerciseGuidesList.first { it.id == "hammer_curl" }
-        clean.contains("curl") || clean.contains("bicep") ->
+        (clean.contains("curl") || clean.contains("bicep")) && !isNonBarbellBicepCurl(clean) ->
             ExerciseGuidesList.first { it.id == "bicep_curl" }
 
         // Core / Planks / Knee Raises
@@ -829,16 +878,34 @@ fun findExerciseGuide(exerciseName: String): ExerciseGuideInfo {
     }
 }
 
+private fun isNonBarbellBicepCurl(clean: String): Boolean {
+    return clean.contains("leg") || clean.contains("hamstring") || clean.contains("wrist") ||
+        clean.contains("dumbbell") || clean.contains("cable") || clean.contains("ez-bar") || clean.contains("ez bar") ||
+        clean.contains("kettlebell") || clean.contains("band") || clean.contains("trx") ||
+        clean.contains("preacher") || clean.contains("spider") || clean.contains("reverse") ||
+        clean.contains("zottman") || clean.contains("drag") || clean.contains("cheat") ||
+        clean.contains("waiter") || clean.contains("pinwheel") || clean.contains("plate") ||
+        clean.contains("crucifix") || clean.contains("bayesian") || clean.contains("hercules") ||
+        clean.contains("towel") || clean.contains("smith")
+}
+
 fun findExerciseGuideOrNull(exerciseName: String): ExerciseGuideInfo? {
     val clean = exerciseName.lowercase().trim()
     if (clean.isBlank()) return null
-    val matched = findExerciseGuide(exerciseName)
-    val explicitFallbackNeeded = !(clean.contains("bench") || clean.contains("chest press") || clean.contains("fly") || clean.contains("flies") || clean.contains("pec") || clean.contains("landmine") || clean.contains("shadow") || clean.contains("box") || clean.contains("jab") || clean.contains("1-2") || clean.contains("slip") || clean.contains("footwork") || clean.contains("flurry") || clean.contains("deadlift") || clean.contains("rdl") || clean.contains("squat") || clean.contains("goblet") || clean.contains("leg press") || clean.contains("lunge") || clean.contains("calf") || clean.contains("lat pull") || clean.contains("pulldown") || clean.contains("row") || clean.contains("arnold") || clean.contains("shoulder press") || clean.contains("overhead press") || clean.contains("military press") || clean.contains("ohp") || clean.contains("lateral raise") || clean.contains("side raise") || clean.contains("pushdown") || clean.contains("dip") || clean.contains("21") || clean.contains("curl") || clean.contains("bicep") || clean.contains("plank") || clean.contains("knee raise") || clean.contains("hanging") || clean.contains("leg raise") || clean.contains("bicycle") || clean.contains("crunch") || clean.contains("climber") || clean.contains("mountain") || clean.contains("pushup") || clean.contains("push up") || clean.contains("push-up") || clean.contains("pullup") || clean.contains("pull up") || clean.contains("pull-up") || clean.contains("chin"))
-    if (explicitFallbackNeeded && matched.id == ExerciseGuidesList.first().id) {
-        val wordMatch = matched.title.lowercase().split(" ").any { word -> word.length > 3 && clean.contains(word) }
+    val isFlyOrCrossoverLike = (clean.contains("crossover") || clean.contains("fly") || clean.contains("flies")) &&
+        !clean.contains("rear") && !clean.contains("reverse") && !clean.contains("high-to-low") && !clean.contains("high to low")
+    val isPushdownLike = clean.contains("pushdown") || clean.contains("push down") || clean.contains("push-down") || clean.contains("pressdown") || clean.contains("press down")
+    val isBicepCurlLike = clean.contains("21s") || clean.contains("21's") ||
+        (clean.contains("21") && (clean.contains("bicep") || clean.contains("curl") || clean.contains("barbell") || clean.contains("ez"))) ||
+        clean.contains("concentration") ||
+        clean.contains("hammer") ||
+        ((clean.contains("curl") || clean.contains("bicep")) && !isNonBarbellBicepCurl(clean))
+    val explicitFallbackNeeded = !(clean.contains("bench") || clean.contains("chest press") || isFlyOrCrossoverLike || clean.contains("pec") || clean.contains("landmine") || clean.contains("shadow") || clean.contains("box") || clean.contains("jab") || clean.contains("1-2") || clean.contains("slip") || clean.contains("footwork") || clean.contains("flurry") || clean.contains("deadlift") || clean.contains("rdl") || clean.contains("squat") || clean.contains("goblet") || clean.contains("leg press") || clean.contains("lunge") || clean.contains("calf") || clean.contains("lat pull") || clean.contains("pulldown") || clean.contains("row") || clean.contains("arnold") || clean.contains("shoulder press") || clean.contains("overhead press") || clean.contains("military press") || clean.contains("ohp") || clean.contains("lateral raise") || clean.contains("side raise") || isPushdownLike || clean.contains("dip") || isBicepCurlLike || clean.contains("plank") || clean.contains("knee raise") || clean.contains("hanging") || clean.contains("leg raise") || clean.contains("bicycle") || clean.contains("crunch") || clean.contains("climber") || clean.contains("mountain") || clean.contains("pushup") || clean.contains("push up") || clean.contains("push-up") || clean.contains("pullup") || clean.contains("pull up") || clean.contains("pull-up") || clean.contains("chin"))
+    if (explicitFallbackNeeded) {
+        val wordMatch = ExerciseGuidesList.first().title.lowercase().split(" ").any { word -> word.length > 3 && clean.contains(word) }
         if (!wordMatch) return null
     }
-    return matched
+    return findExerciseGuide(exerciseName)
 }
 
 @Composable

@@ -127,8 +127,8 @@ class CloudflareR2Service(val context: Context) {
                 "chest_dips", "landmine_press",
                 "pushup", "incline_pushup", "decline_pushup",
                 "bicep_curl", "bicep_21s", "hammer_curl", "concentration_curl",
-                "lat_pulldown", "cable_row", "overhead_press", "lateral_raise",
-                "tricep_pushdown", "tricep_dip", "squat", "deadlift", "lunge",
+                "lat_pulldown", "cable_row", "bent_over_barbell_row", "overhead_press", "lateral_raise",
+                "tricep_pushdown", "tricep_rope_pushdown", "tricep_dip", "squat", "deadlift", "lunge",
                 "leg_press", "calf_raise", "knee_raise", "plank",
                 "pullup", "bodyweight_squat", "arnold_press",
                 "mountain_climber", "bicycle_crunch",
@@ -144,7 +144,8 @@ class CloudflareR2Service(val context: Context) {
                 has("21s") || (hasWord("21") && (has("bicep") || has("curl") || has("finisher") || has("barbell") || has("ez"))) -> "bicep_21s"
                 has("concentration") && has("curl") -> "concentration_curl"
                 has("hammer") && has("curl") -> "hammer_curl"
-                (has("bicep") && has("curl")) || (has("barbell") && has("curl")) -> "bicep_curl"
+                (has("bicep") && has("curl") && !has("dumbbell") && !has("cable") && !has("preacher") && !has("spider") && !has("reverse") && !has("ez")) ||
+                    (has("barbell") && has("curl") && !has("reverse") && !has("wrist") && !has("drag") && !has("cheat") && !has("spider")) -> "bicep_curl"
                 has("incline") && has("bench") && has("barbell") -> "incline_bench_barbell"
                 has("incline") && (has("dumbbell") || has("bench")) -> "incline_bench"
                 has("decline") && (has("dumbbell") || hasWord("db")) && has("bench") -> "decline_bench_dumbbell"
@@ -155,7 +156,7 @@ class CloudflareR2Service(val context: Context) {
                 has("bench") && has("press") -> "barbell_bench_press"
                 (has("chest") || has("dumbbell") || has("floor") || has("flat")) && !has("rear") && !has("reverse") && (has("fly") || has("flys") || has("flyes") || has("flies")) -> "chest_fly_dumbbell"
                 has("pec") && has("deck") -> "pec_deck"
-                has("cable") && has("crossover") -> "cable_crossover"
+                has("cable") && has("crossover") && !has("rear") && !has("reverse") && !has("high to low") -> "cable_crossover"
                 has("chest") && has("dip") -> "chest_dips"
                 has("landmine") -> "landmine_press"
                 has("decline") && has("push") -> "decline_pushup"
@@ -163,11 +164,13 @@ class CloudflareR2Service(val context: Context) {
                 has("push up") || has("pushup") || has("push ups") -> "pushup"
                 has("pull up") || has("pullup") || has("pull ups") -> "pullup"
                 has("lat") && (has("pulldown") || has("pull down")) -> "lat_pulldown"
+                ((has("bent over") || has("barbell")) && has("row") && !has("dumbbell") && !has("cable") && !has("upright") && !has("inverted") && !has("band") && !has("smith") && !has("chest supported") && !has("rear delt")) -> "bent_over_barbell_row"
                 has("cable") && has("row") -> "cable_row"
                 has("arnold") -> "arnold_press"
                 has("overhead") && has("press") -> "overhead_press"
                 has("lateral") && has("raise") -> "lateral_raise"
-                has("tricep") && has("pushdown") -> "tricep_pushdown"
+                has("rope") && (has("pushdown") || has("push down") || has("pressdown") || has("press down")) -> "tricep_rope_pushdown"
+                (has("tricep") && (has("pushdown") || has("push down") || has("pressdown"))) || has("pushdown") -> "tricep_pushdown"
                 has("tricep") && has("dip") -> "tricep_dip"
                 has("bodyweight") && has("squat") -> "bodyweight_squat"
                 has("squat") -> "squat"
@@ -198,6 +201,8 @@ class CloudflareR2Service(val context: Context) {
             "concentration_curl",
             "bicep_curl",
             "bicep_21s",
+            "tricep_rope_pushdown",
+            "bent_over_barbell_row",
             "shadow_boxing_1_2",
             "shadow_boxing_1_2_3",
             "shadow_boxing_slip",
