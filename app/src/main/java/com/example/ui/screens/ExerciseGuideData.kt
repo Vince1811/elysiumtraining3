@@ -605,7 +605,8 @@ val ExerciseGuidesList = listOf(
             "Lower: Lower the dumbbell slowly and in control until your arm is fully extended.",
             "Repeat: Do the required reps on one arm, then switch to the other."
         ),
-        executionTips = "Isolation exercise for bigger biceps: anchor your upper arm firmly against your inner thigh and squeeze your bicep peak at the top."
+        executionTips = "Isolation exercise for bigger biceps: anchor your upper arm firmly against your inner thigh and squeeze your bicep peak at the top.",
+        publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Done/Concentration%20Curls%20Fitness%20dumbell%20Infographic.png"
     ),
     ExerciseGuideInfo(
         id = "tricep_dip",
