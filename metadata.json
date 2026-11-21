@@ -1,0 +1,6 @@
+{
+  "name": "Elysium Training",
+  "description": "Functional gym app with daily programs, sets, supersets, AI muscle study, and Spotify/Cloudflare integrations.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

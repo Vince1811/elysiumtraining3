@@ -1,0 +1,9 @@
+name = "elysium-d1-platform"
+main = "worker.js"
+compatibility_date = "2026-01-01"
+
+# Bind your Cloudflare D1 database here before running: npx wrangler deploy
+[[d1_databases]]
+binding = "DB"
+database_name = "elysium-training-db"
+database_id = "YOUR_CLOUDFLARE_DATABASE_ID"
