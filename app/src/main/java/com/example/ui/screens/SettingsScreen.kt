@@ -2551,9 +2551,12 @@ fun SettingsScreen(
         Spacer(Modifier.height(24.dp))
 
         // --- APP VERSION & UPDATES DEPARTMENT ---
-        val savedUpdateSource by preferencesManager.appUpdateSourceFlow.collectAsState(initial = "")
+        val savedUpdateSource by preferencesManager.appUpdateSourceFlow.collectAsState(
+            initial = com.example.data.PreferencesManager.DEFAULT_GITHUB_UPDATE_URL
+        )
         val savedGithubToken by preferencesManager.githubUpdateTokenFlow.collectAsState(initial = "")
         val isUpdateAvailableSaved by preferencesManager.updateAvailableFlow.collectAsState(initial = false)
+        val currentUserIdForSync by preferencesManager.userIdFlow.collectAsState(initial = -1)
         var isCheckingUpdate by remember { mutableStateOf(false) }
         var showUpdateRepoDialog by remember { mutableStateOf(false) }
         var showUpdateResultDialog by remember { mutableStateOf(false) }
@@ -2579,6 +2582,29 @@ fun SettingsScreen(
         val runGitHubUpdateCheck: (String, String) -> Unit = { repoSource, repoToken ->
             isCheckingUpdate = true
             scope.launch {
+                // Also sync latest cloud data & exercise pictures automatically
+                if (currentUserIdForSync != -1) {
+                    launch {
+                        try {
+                            com.example.data.CloudflareSyncService(context.applicationContext)
+                                .syncOnAppOpenOrReconnect(currentUserIdForSync, repository, preferencesManager)
+                        } catch (_: Exception) {
+                        }
+                    }
+                    launch {
+                        try {
+                            com.example.data.CloudflareR2Service(context.applicationContext)
+                                .syncAllPicturesOnStartup(
+                                    userId = currentUserIdForSync,
+                                    repository = repository,
+                                    preferencesManager = preferencesManager,
+                                    bundledGuides = ExerciseGuidesList.map { it.id to it.drawableResId }
+                                )
+                        } catch (_: Exception) {
+                        }
+                    }
+                }
+
                 val res = com.example.data.GitHubUpdateChecker.checkGitHubFilesForUpdate(
                     context = context.applicationContext,
                     rawSource = repoSource,
@@ -2591,14 +2617,27 @@ fun SettingsScreen(
                     url = res.apkDownloadUrl.orEmpty()
                 )
                 isCheckingUpdate = false
-                updateResultTitle = if (res.isUpdateAvailable) {
-                    "Update Available${if (res.updateLabel.isNotBlank()) ": ${res.updateLabel}" else ""}"
+                if (res.isUpdateAvailable && !res.apkDownloadUrl.isNullOrBlank()) {
+                    try {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse(res.apkDownloadUrl))
+                        )
+                    } catch (_: Exception) {
+                        updateResultTitle = "Update Available${if (res.updateLabel.isNotBlank()) ": ${res.updateLabel}" else ""}"
+                        updateResultMessage = res.statusMessage
+                        updateResultApkUrl = res.apkDownloadUrl
+                        showUpdateResultDialog = true
+                    }
                 } else {
-                    "App Version Check"
+                    updateResultTitle = if (res.isUpdateAvailable) {
+                        "Update Available${if (res.updateLabel.isNotBlank()) ": ${res.updateLabel}" else ""}"
+                    } else {
+                        "App Version Check"
+                    }
+                    updateResultMessage = res.statusMessage
+                    updateResultApkUrl = res.apkDownloadUrl
+                    showUpdateResultDialog = true
                 }
-                updateResultMessage = res.statusMessage
-                updateResultApkUrl = res.apkDownloadUrl
-                showUpdateResultDialog = true
             }
         }
 
@@ -2613,14 +2652,9 @@ fun SettingsScreen(
             Column(modifier = Modifier.padding(16.dp)) {
                 Button(
                     onClick = {
-                        val trimmed = savedUpdateSource.trim()
-                        if (trimmed.isBlank()) {
-                            updateSourceInput = ""
-                            githubTokenInput = savedGithubToken
-                            showUpdateRepoDialog = true
-                        } else {
-                            runGitHubUpdateCheck(trimmed, savedGithubToken.trim())
-                        }
+                        val effectiveSource = savedUpdateSource.trim()
+                            .ifBlank { com.example.data.PreferencesManager.DEFAULT_GITHUB_UPDATE_URL }
+                        runGitHubUpdateCheck(effectiveSource, savedGithubToken.trim())
                     },
                     enabled = !isCheckingUpdate,
                     modifier = Modifier

@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.map
 
 class PreferencesManager(private val context: Context) {
     companion object {
+        const val DEFAULT_GITHUB_UPDATE_URL = "https://github.com/Vince1811/elysiumtraining3"
         val CLOUDFLARE_ACCOUNT_ID = stringPreferencesKey("cloudflare_account_id")
         val CLOUDFLARE_DB_ID = stringPreferencesKey("cloudflare_db_id")
         val CLOUDFLARE_API_TOKEN = stringPreferencesKey("cloudflare_api_token")
@@ -279,7 +280,7 @@ class PreferencesManager(private val context: Context) {
     }
 
     val appUpdateSourceFlow: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[APP_UPDATE_SOURCE] ?: ""
+        preferences[APP_UPDATE_SOURCE]?.takeIf { it.isNotBlank() } ?: DEFAULT_GITHUB_UPDATE_URL
     }
 
     suspend fun saveAppUpdateSource(source: String) {

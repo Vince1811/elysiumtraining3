@@ -111,7 +111,9 @@ class MainActivity : FragmentActivity() {
                     }
                 }
 
-                val savedUpdateSource by preferences.appUpdateSourceFlow.collectAsState(initial = "")
+                val savedUpdateSource by preferences.appUpdateSourceFlow.collectAsState(
+                    initial = com.example.data.PreferencesManager.DEFAULT_GITHUB_UPDATE_URL
+                )
                 val savedGithubToken by preferences.githubUpdateTokenFlow.collectAsState(initial = "")
                 val appUpdateAvailable by preferences.updateAvailableFlow.collectAsState(initial = false)
                 val appUpdateLabel by preferences.updateAvailableLabelFlow.collectAsState(initial = "")
