@@ -2553,13 +2553,17 @@ fun SettingsScreen(
         // --- APP VERSION & UPDATES DEPARTMENT ---
         val savedUpdateSource by preferencesManager.appUpdateSourceFlow.collectAsState(initial = "")
         val savedGithubToken by preferencesManager.githubUpdateTokenFlow.collectAsState(initial = "")
+        val isUpdateAvailableSaved by preferencesManager.updateAvailableFlow.collectAsState(initial = false)
+        var isCheckingUpdate by remember { mutableStateOf(false) }
+        var showUpdateRepoDialog by remember { mutableStateOf(false) }
+        var showUpdateResultDialog by remember { mutableStateOf(false) }
+        var updateResultTitle by remember { mutableStateOf("App Update Check") }
+        var updateResultMessage by remember { mutableStateOf("") }
+        var updateResultApkUrl by remember { mutableStateOf<String?>(null) }
+
         var updateSourceInput by remember { mutableStateOf("") }
         var githubTokenInput by remember { mutableStateOf("") }
         var showGithubToken by remember { mutableStateOf(false) }
-        var isCheckingUpdate by remember { mutableStateOf(false) }
-        var updateCheckStatus by remember { mutableStateOf<String?>(null) }
-        var availableReleaseUrl by remember { mutableStateOf<String?>(null) }
-        var availableReleaseButtonLabel by remember { mutableStateOf("Download Update APK") }
 
         LaunchedEffect(savedUpdateSource) {
             if (updateSourceInput.isBlank() && savedUpdateSource.isNotBlank()) {
@@ -2572,22 +2576,31 @@ fun SettingsScreen(
             }
         }
 
-        val installedPkgInfo = remember(context) {
-            try {
-                context.packageManager.getPackageInfo(context.packageName, 0)
-            } catch (_: Exception) {
-                null
+        val runGitHubUpdateCheck: (String, String) -> Unit = { repoSource, repoToken ->
+            isCheckingUpdate = true
+            scope.launch {
+                val res = com.example.data.GitHubUpdateChecker.checkGitHubFilesForUpdate(
+                    context = context.applicationContext,
+                    rawSource = repoSource,
+                    token = repoToken
+                )
+                preferencesManager.saveUpdateStatus(
+                    available = res.isUpdateAvailable,
+                    label = res.updateLabel,
+                    message = res.statusMessage,
+                    url = res.apkDownloadUrl.orEmpty()
+                )
+                isCheckingUpdate = false
+                updateResultTitle = if (res.isUpdateAvailable) {
+                    "Update Available${if (res.updateLabel.isNotBlank()) ": ${res.updateLabel}" else ""}"
+                } else {
+                    "App Version Check"
+                }
+                updateResultMessage = res.statusMessage
+                updateResultApkUrl = res.apkDownloadUrl
+                showUpdateResultDialog = true
             }
         }
-        val installedVersionName = installedPkgInfo?.versionName ?: "1.0"
-        val installedVersionCode = if (installedPkgInfo != null) {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                installedPkgInfo.longVersionCode
-            } else {
-                @Suppress("DEPRECATION")
-                installedPkgInfo.versionCode.toLong()
-            }
-        } else 1L
 
         Text("App Version & Updates 🔄", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
@@ -2597,148 +2610,162 @@ fun SettingsScreen(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text(
-                            text = "Installed Version: v$installedVersionName (build $installedVersionCode)",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Workout & photo changes sync live via D1/R2. App code updates require installing a rebuilt APK from a GitHub Release or Actions artifact.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                OutlinedTextField(
-                    value = updateSourceInput,
-                    onValueChange = { updateSourceInput = it },
-                    label = { Text("GitHub Repo (owner/repo) or URL") },
-                    placeholder = { Text("e.g. myname/elysium-training") },
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("github_update_repo_input")
-                )
-
-                OutlinedTextField(
-                    value = githubTokenInput,
-                    onValueChange = { githubTokenInput = it },
-                    label = { Text("GitHub Token (optional, for private repos)") },
-                    placeholder = { Text("ghp_... or github_pat_...") },
-                    singleLine = true,
-                    visualTransformation = if (showGithubToken) VisualTransformation.None else PasswordVisualTransformation(),
-                    trailingIcon = {
-                        IconButton(onClick = { showGithubToken = !showGithubToken }) {
-                            Icon(
-                                imageVector = if (showGithubToken) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                                contentDescription = if (showGithubToken) "Hide GitHub token" else "Show GitHub token"
-                            )
+            Column(modifier = Modifier.padding(16.dp)) {
+                Button(
+                    onClick = {
+                        val trimmed = savedUpdateSource.trim()
+                        if (trimmed.isBlank()) {
+                            updateSourceInput = ""
+                            githubTokenInput = savedGithubToken
+                            showUpdateRepoDialog = true
+                        } else {
+                            runGitHubUpdateCheck(trimmed, savedGithubToken.trim())
                         }
                     },
+                    enabled = !isCheckingUpdate,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .testTag("github_update_token_input")
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        .heightIn(min = 48.dp)
+                        .testTag("check_app_update_button"),
+                    shape = RoundedCornerShape(10.dp)
                 ) {
-                    Button(
-                        onClick = {
-                            val trimmed = updateSourceInput.trim()
-                            val tokenTrimmed = githubTokenInput.trim()
-                            availableReleaseUrl = null
-                            isCheckingUpdate = true
-                            scope.launch {
-                                preferencesManager.saveAppUpdateSource(trimmed)
-                                preferencesManager.saveGithubUpdateToken(tokenTrimmed)
-                                if (trimmed.isBlank()) {
-                                    isCheckingUpdate = false
-                                    updateCheckStatus = "Enter your GitHub repo (owner/repo or https://github.com/owner/repo), then tap Update / Check GitHub."
-                                } else if (trimmed.endsWith(".apk", ignoreCase = true) && (trimmed.startsWith("http://") || trimmed.startsWith("https://"))) {
-                                    availableReleaseUrl = trimmed
-                                    availableReleaseButtonLabel = "Download Update APK"
-                                    isCheckingUpdate = false
-                                    updateCheckStatus = "Direct APK URL saved. Tap Download Update APK below to install."
-                                } else {
-                                    val repoSlug = parseGitHubRepoSlug(trimmed)
-                                    if (repoSlug != null) {
-                                        val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                            checkGitHubAppUpdate(
-                                                repoSlug = repoSlug,
-                                                token = tokenTrimmed,
-                                                installedVersionName = installedVersionName,
-                                                installedVersionCode = installedVersionCode
-                                            )
-                                        }
-                                        isCheckingUpdate = false
-                                        updateCheckStatus = result.statusMessage
-                                        availableReleaseUrl = result.apkDownloadUrl
-                                        availableReleaseButtonLabel = result.apkButtonLabel
-                                    } else {
-                                        isCheckingUpdate = false
-                                        updateCheckStatus = "Enter a valid GitHub repo like owner/repo, a GitHub repo URL, or a direct .apk URL."
-                                    }
-                                }
-                            }
-                        },
-                        enabled = !isCheckingUpdate,
-                        modifier = Modifier
-                            .weight(1f)
-                            .heightIn(min = 48.dp)
-                            .testTag("check_app_update_button"),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        if (isCheckingUpdate) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onPrimary
-                            )
-                            Spacer(Modifier.width(8.dp))
-                        }
-                        Text(if (isCheckingUpdate) "Checking GitHub..." else "Update / Check GitHub")
+                    if (isCheckingUpdate) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                        Spacer(Modifier.width(8.dp))
                     }
-                }
-
-                if (!updateCheckStatus.isNullOrBlank()) {
                     Text(
-                        text = updateCheckStatus!!,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        when {
+                            isCheckingUpdate -> "Checking GitHub Files..."
+                            isUpdateAvailableSaved -> "Update Available"
+                            else -> "Update"
+                        }
                     )
                 }
+            }
+        }
 
-                if (!availableReleaseUrl.isNullOrBlank()) {
+        if (showUpdateRepoDialog) {
+            AlertDialog(
+                onDismissRequest = { showUpdateRepoDialog = false },
+                title = { Text("GitHub Repository") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            text = "Enter the GitHub repository (owner/repo or URL) to check its files for app updates.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        OutlinedTextField(
+                            value = updateSourceInput,
+                            onValueChange = { updateSourceInput = it },
+                            label = { Text("GitHub Repo (owner/repo) or URL") },
+                            placeholder = { Text("e.g. myname/elysium-training") },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("github_update_repo_input")
+                        )
+                        OutlinedTextField(
+                            value = githubTokenInput,
+                            onValueChange = { githubTokenInput = it },
+                            label = { Text("GitHub Token (optional, for private repos)") },
+                            placeholder = { Text("ghp_... or github_pat_...") },
+                            singleLine = true,
+                            visualTransformation = if (showGithubToken) VisualTransformation.None else PasswordVisualTransformation(),
+                            trailingIcon = {
+                                IconButton(onClick = { showGithubToken = !showGithubToken }) {
+                                    Icon(
+                                        imageVector = if (showGithubToken) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                        contentDescription = if (showGithubToken) "Hide GitHub token" else "Show GitHub token"
+                                    )
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("github_update_token_input")
+                        )
+                    }
+                },
+                confirmButton = {
                     Button(
                         onClick = {
-                            try {
-                                context.startActivity(
-                                    Intent(Intent.ACTION_VIEW, android.net.Uri.parse(availableReleaseUrl))
-                                )
-                            } catch (e: Exception) {
-                                android.widget.Toast.makeText(context, "Could not start APK download: ${e.localizedMessage}", android.widget.Toast.LENGTH_SHORT).show()
+                            val repoTrimmed = updateSourceInput.trim()
+                            val tokenTrimmed = githubTokenInput.trim()
+                            scope.launch {
+                                preferencesManager.saveAppUpdateSource(repoTrimmed)
+                                preferencesManager.saveGithubUpdateToken(tokenTrimmed)
+                                showUpdateRepoDialog = false
+                                if (repoTrimmed.isNotBlank()) {
+                                    runGitHubUpdateCheck(repoTrimmed, tokenTrimmed)
+                                }
                             }
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 48.dp)
-                            .testTag("open_app_update_download_button"),
-                        shape = RoundedCornerShape(10.dp)
+                        }
                     ) {
-                        Text(availableReleaseButtonLabel)
+                        Text("Check Updates")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showUpdateRepoDialog = false }) {
+                        Text("Cancel")
                     }
                 }
-            }
+            )
+        }
+
+        if (showUpdateResultDialog) {
+            AlertDialog(
+                onDismissRequest = { showUpdateResultDialog = false },
+                title = { Text(updateResultTitle) },
+                text = {
+                    Text(
+                        text = updateResultMessage,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                },
+                confirmButton = {
+                    if (!updateResultApkUrl.isNullOrBlank()) {
+                        Button(
+                            onClick = {
+                                val apkLink = updateResultApkUrl!!
+                                showUpdateResultDialog = false
+                                try {
+                                    context.startActivity(
+                                        Intent(Intent.ACTION_VIEW, Uri.parse(apkLink))
+                                    )
+                                } catch (e: Exception) {
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "Could not start APK download: ${e.localizedMessage}",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            },
+                            modifier = Modifier.testTag("open_app_update_download_button")
+                        ) {
+                            Text("Download APK")
+                        }
+                    } else {
+                        Button(onClick = { showUpdateResultDialog = false }) {
+                            Text("OK")
+                        }
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            showUpdateResultDialog = false
+                            updateSourceInput = savedUpdateSource
+                            githubTokenInput = savedGithubToken
+                            showUpdateRepoDialog = true
+                        }
+                    ) {
+                        Text("Change Repo")
+                    }
+                }
+            )
         }
 
         Spacer(Modifier.height(24.dp))
@@ -3025,409 +3052,5 @@ fun VolumeProgressionLineChart(
                 }
             }
         }
-    }
-}
-
-private data class GitHubUpdateCheckResult(
-    val statusMessage: String,
-    val apkDownloadUrl: String? = null,
-    val apkButtonLabel: String = "Download Update APK"
-)
-
-private fun parseGitHubRepoSlug(rawInput: String): String? {
-    val trimmed = rawInput.trim()
-    if (trimmed.isBlank()) return null
-
-    var cleaned = trimmed
-        .removePrefix("https://")
-        .removePrefix("http://")
-        .removePrefix("www.")
-        .trim('/')
-
-    cleaned = when {
-        cleaned.startsWith("github.com/", ignoreCase = true) ->
-            cleaned.substringAfter("github.com/", "")
-        cleaned.startsWith("api.github.com/repos/", ignoreCase = true) ->
-            cleaned.substringAfter("api.github.com/repos/", "")
-        cleaned.startsWith("raw.githubusercontent.com/", ignoreCase = true) ->
-            cleaned.substringAfter("raw.githubusercontent.com/", "")
-        else -> {
-            val firstSegment = cleaned.substringBefore('/')
-            if (firstSegment.contains('.') && !firstSegment.equals("github.com", ignoreCase = true)) {
-                return null
-            }
-            cleaned
-        }
-    }
-
-    val parts = cleaned.split('/').filter { it.isNotBlank() }
-    if (parts.size < 2) return null
-    val owner = parts[0].trim()
-    val repo = parts[1].removeSuffix(".git").trim()
-    if (owner.isBlank() || repo.isBlank()) return null
-    return "$owner/$repo"
-}
-
-private fun githubHttpGet(urlString: String, token: String): Pair<Int, String> {
-    val url = java.net.URL(urlString)
-    val conn = (url.openConnection() as java.net.HttpURLConnection).apply {
-        requestMethod = "GET"
-        instanceFollowRedirects = true
-        setRequestProperty("User-Agent", "ElysiumTraining-Android/1.0")
-        setRequestProperty("Accept", "application/vnd.github+json")
-        setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
-        if (token.isNotBlank()) {
-            setRequestProperty("Authorization", "Bearer ${token.trim()}")
-        }
-        connectTimeout = 10000
-        readTimeout = 10000
-    }
-    return try {
-        val code = conn.responseCode
-        val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-        val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-        code to body
-    } finally {
-        conn.disconnect()
-    }
-}
-
-private fun webHttpGet(urlString: String): Triple<Int, String, String> {
-    val url = java.net.URL(urlString)
-    val conn = (url.openConnection() as java.net.HttpURLConnection).apply {
-        requestMethod = "GET"
-        instanceFollowRedirects = true
-        setRequestProperty(
-            "User-Agent",
-            "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
-        )
-        setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-        connectTimeout = 10000
-        readTimeout = 10000
-    }
-    return try {
-        val code = conn.responseCode
-        val finalUrl = conn.url?.toString().orEmpty()
-        val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-        val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-        Triple(code, finalUrl, body)
-    } finally {
-        conn.disconnect()
-    }
-}
-
-private fun extractVersionFromGradleContent(gradleText: String): Pair<Long?, String?> {
-    val codeMatch = Regex("""versionCode\s*=?\s*(\d+)""").find(gradleText)
-    val nameMatch = Regex("""versionName\s*=?\s*["']([^"']+)["']""").find(gradleText)
-    val remoteCode = codeMatch?.groupValues?.getOrNull(1)?.toLongOrNull()
-    val remoteName = nameMatch?.groupValues?.getOrNull(1)?.trim()
-    return remoteCode to remoteName
-}
-
-private fun extractApkLinkFromHtml(html: String, repoSlug: String): String {
-    if (html.isBlank()) return ""
-    val regex = Regex(
-        """href=["']((?:https://github\.com)?/${Regex.escape(repoSlug)}/releases/download/[^"']+\.apk)["']""",
-        RegexOption.IGNORE_CASE
-    )
-    val match = regex.find(html)?.groupValues?.getOrNull(1)?.trim().orEmpty()
-    if (match.isNotBlank()) {
-        return if (match.startsWith("http")) match else "https://github.com$match"
-    }
-    val genericRegex = Regex(
-        """href=["']((?:https://github\.com)?/[^"']+/releases/download/[^"']+\.apk)["']""",
-        RegexOption.IGNORE_CASE
-    )
-    val genericMatch = genericRegex.find(html)?.groupValues?.getOrNull(1)?.trim().orEmpty()
-    return when {
-        genericMatch.startsWith("http") -> genericMatch
-        genericMatch.isNotBlank() -> "https://github.com$genericMatch"
-        else -> ""
-    }
-}
-
-private fun checkGitHubViaWebAndRaw(
-    repoSlug: String,
-    installedVersionName: String,
-    installedVersionCode: Long
-): GitHubUpdateCheckResult? {
-    // 1. Check /releases/latest without api.github.com (no 60/hr API rate limit)
-    val (latestCode, latestFinalUrl, latestHtml) = webHttpGet("https://github.com/$repoSlug/releases/latest")
-
-    var detectedTag = ""
-    var detectedApkUrl = ""
-
-    if (latestCode in 200..299) {
-        if (latestFinalUrl.contains("/releases/tag/")) {
-            detectedTag = latestFinalUrl
-                .substringAfter("/releases/tag/")
-                .substringBefore("?")
-                .substringBefore("#")
-                .trim()
-        }
-        detectedApkUrl = extractApkLinkFromHtml(latestHtml, repoSlug)
-        if (detectedApkUrl.isBlank() && detectedTag.isNotBlank()) {
-            val encodedTag = java.net.URLEncoder.encode(detectedTag, "UTF-8")
-            val (assetsCode, _, assetsHtml) = webHttpGet(
-                "https://github.com/$repoSlug/releases/expanded_assets/$encodedTag"
-            )
-            if (assetsCode in 200..299) {
-                detectedApkUrl = extractApkLinkFromHtml(assetsHtml, repoSlug)
-            }
-        }
-    }
-
-    // 2. Fallback to releases.atom if /releases/latest didn't find a tag (e.g. prereleases)
-    if (detectedTag.isBlank()) {
-        val (atomCode, _, atomXml) = webHttpGet("https://github.com/$repoSlug/releases.atom")
-        if (atomCode in 200..299 && atomXml.contains("<entry>")) {
-            val firstEntry = atomXml.substringAfter("<entry>").substringBefore("</entry>")
-            val tagHref = Regex("""href=["'][^"']+/releases/tag/([^"']+)["']""")
-                .find(firstEntry)?.groupValues?.getOrNull(1)?.trim().orEmpty()
-            val titleTag = Regex("""<title>([^<]+)</title>""")
-                .find(firstEntry)?.groupValues?.getOrNull(1)?.trim().orEmpty()
-            detectedTag = tagHref.ifBlank { titleTag }
-            if (tagHref.isNotBlank()) {
-                val encodedTag = java.net.URLEncoder.encode(tagHref, "UTF-8")
-                val (assetsCode, _, assetsHtml) = webHttpGet(
-                    "https://github.com/$repoSlug/releases/expanded_assets/$encodedTag"
-                )
-                if (assetsCode in 200..299) {
-                    detectedApkUrl = extractApkLinkFromHtml(assetsHtml, repoSlug)
-                }
-            }
-        }
-    }
-
-    if (detectedApkUrl.isNotBlank()) {
-        val label = detectedTag.ifBlank { "Latest Release" }
-        val normalizedTag = label.removePrefix("v").removePrefix("V").trim()
-        val isNewer = normalizedTag.isNotBlank() && normalizedTag != installedVersionName
-        return GitHubUpdateCheckResult(
-            statusMessage = if (isNewer) {
-                "Update available on GitHub: $label (installed v$installedVersionName)."
-            } else {
-                "Latest GitHub APK release is $label (matches installed v$installedVersionName)."
-            },
-            apkDownloadUrl = detectedApkUrl,
-            apkButtonLabel = "Download Update APK ($label)"
-        )
-    }
-
-    if (detectedTag.isNotBlank()) {
-        return GitHubUpdateCheckResult(
-            statusMessage = "Found release $detectedTag on '$repoSlug', but no .apk file is attached to that release yet. Upload an .apk to your GitHub Release to download updates here."
-        )
-    }
-
-    // 3. No Releases published yet: check commits.atom & raw build.gradle.kts with zero API rate limit
-    var commitSummary = ""
-    val (commitsCode, _, commitsXml) = webHttpGet("https://github.com/$repoSlug/commits.atom")
-    if (commitsCode in 200..299 && commitsXml.contains("<entry>")) {
-        val entry = commitsXml.substringAfter("<entry>").substringBefore("</entry>")
-        val title = Regex("""<title[^>]*>([^<]+)</title>""").find(entry)?.groupValues?.getOrNull(1)?.trim().orEmpty()
-        val sha = Regex("""/commit/([a-fA-F0-9]{7,40})""").find(entry)?.groupValues?.getOrNull(1)?.take(7).orEmpty()
-        if (sha.isNotBlank() || title.isNotBlank()) {
-            commitSummary = buildString {
-                append("Latest commit")
-                if (sha.isNotBlank()) append(" $sha")
-                if (title.isNotBlank()) append(" (\"${title.take(60)}\")")
-                append(".")
-            }
-        }
-    }
-
-    var remoteGradleInfo = ""
-    val candidateRawPaths = listOf(
-        "https://raw.githubusercontent.com/$repoSlug/main/app/build.gradle.kts",
-        "https://raw.githubusercontent.com/$repoSlug/master/app/build.gradle.kts",
-        "https://raw.githubusercontent.com/$repoSlug/main/build.gradle.kts",
-        "https://raw.githubusercontent.com/$repoSlug/master/build.gradle.kts"
-    )
-    for (rawUrl in candidateRawPaths) {
-        val (rCode, _, rBody) = webHttpGet(rawUrl)
-        if (rCode in 200..299 && rBody.contains("versionCode")) {
-            val (remCode, remName) = extractVersionFromGradleContent(rBody)
-            if (!remName.isNullOrBlank() || remCode != null) {
-                val vNamePart = remName?.let { "v$it" } ?: "v?"
-                val vCodePart = remCode?.let { " (build $it)" } ?: ""
-                val newerHint = if ((remCode != null && remCode > installedVersionCode) || (!remName.isNullOrBlank() && remName != installedVersionName)) {
-                    " — newer than installed v$installedVersionName (build $installedVersionCode)"
-                } else {
-                    " — matches installed version"
-                }
-                remoteGradleInfo = " Repo build: $vNamePart$vCodePart$newerHint."
-            }
-            break
-        }
-    }
-
-    return if (commitSummary.isNotBlank() || remoteGradleInfo.isNotBlank() || latestCode in 200..299) {
-        val msg = buildString {
-            append("Connected to GitHub repo '$repoSlug'. ")
-            if (commitSummary.isNotBlank()) append(commitSummary)
-            if (remoteGradleInfo.isNotBlank()) append(remoteGradleInfo)
-            append(" No compiled .apk Release is published yet — create a GitHub Release with an .apk file attached to download and install directly here.")
-        }
-        GitHubUpdateCheckResult(statusMessage = msg)
-    } else {
-        null
-    }
-}
-
-private fun checkGitHubAppUpdate(
-    repoSlug: String,
-    token: String,
-    installedVersionName: String,
-    installedVersionCode: Long
-): GitHubUpdateCheckResult {
-    return try {
-        // For unauthenticated checks, always try zero-rate-limit GitHub web/Atom/raw endpoints first
-        if (token.isBlank()) {
-            val webResult = checkGitHubViaWebAndRaw(repoSlug, installedVersionName, installedVersionCode)
-            if (webResult != null) return webResult
-            return GitHubUpdateCheckResult(
-                statusMessage = "Repository '$repoSlug' was not found publicly. Check the owner/repo spelling, or if it is Private, enter a GitHub Token above."
-            )
-        }
-
-        // Authenticated check via GitHub REST API (supports private repos)
-        val (repoCode, repoBody) = githubHttpGet("https://api.github.com/repos/$repoSlug", token)
-        if (repoCode == 401 || repoCode == 403) {
-            // Fall back to public web endpoints just in case repo is public even if token was rejected
-            val fallbackWeb = checkGitHubViaWebAndRaw(repoSlug, installedVersionName, installedVersionCode)
-            if (fallbackWeb != null) return fallbackWeb
-            return GitHubUpdateCheckResult(
-                statusMessage = "GitHub Token was rejected (HTTP $repoCode). Check that your Personal Access Token is valid, unexpired, and has Contents/Metadata read permission."
-            )
-        }
-        if (repoCode == 404) {
-            return GitHubUpdateCheckResult(
-                statusMessage = "GitHub returned 404 for '$repoSlug'. Verify the repo name and ensure your token has read access to this repository."
-            )
-        }
-        if (repoCode !in 200..299 || repoBody.isBlank()) {
-            return GitHubUpdateCheckResult(
-                statusMessage = "Could not reach repository '$repoSlug' (HTTP $repoCode)."
-            )
-        }
-
-        val repoJson = org.json.JSONObject(repoBody)
-        val defaultBranch = repoJson.optString("default_branch", "main").ifBlank { "main" }
-
-        var releaseObj: org.json.JSONObject? = null
-        val (latestCode, latestBody) = githubHttpGet("https://api.github.com/repos/$repoSlug/releases/latest", token)
-        if (latestCode in 200..299 && latestBody.isNotBlank()) {
-            releaseObj = org.json.JSONObject(latestBody)
-        } else {
-            val (listCode, listBody) = githubHttpGet("https://api.github.com/repos/$repoSlug/releases?per_page=1", token)
-            if (listCode in 200..299 && listBody.isNotBlank()) {
-                val arr = org.json.JSONArray(listBody)
-                if (arr.length() > 0) {
-                    releaseObj = arr.optJSONObject(0)
-                }
-            }
-        }
-
-        if (releaseObj != null) {
-            val tag = releaseObj.optString("tag_name", "").trim()
-            val releaseTitle = releaseObj.optString("name", "").trim()
-            var apkUrl = ""
-            val assets = releaseObj.optJSONArray("assets")
-            if (assets != null) {
-                for (i in 0 until assets.length()) {
-                    val a = assets.optJSONObject(i) ?: continue
-                    val assetName = a.optString("name", "")
-                    if (assetName.endsWith(".apk", ignoreCase = true)) {
-                        apkUrl = a.optString("browser_download_url", "")
-                        break
-                    }
-                }
-            }
-            val label = tag.ifBlank { releaseTitle.ifBlank { "Release" } }
-            val normalizedTag = tag.removePrefix("v").removePrefix("V").trim()
-            val isNewer = normalizedTag.isNotBlank() && normalizedTag != installedVersionName
-
-            return if (apkUrl.isNotBlank()) {
-                GitHubUpdateCheckResult(
-                    statusMessage = if (isNewer) {
-                        "Update available on GitHub: $label (installed v$installedVersionName)."
-                    } else {
-                        "Latest GitHub release is $label (matches installed v$installedVersionName)."
-                    },
-                    apkDownloadUrl = apkUrl,
-                    apkButtonLabel = "Download Update APK ($label)"
-                )
-            } else {
-                GitHubUpdateCheckResult(
-                    statusMessage = "Found release $label on '$repoSlug', but no .apk file is attached to the release assets yet."
-                )
-            }
-        }
-
-        // No Releases in authenticated repo: inspect latest commit & remote build.gradle.kts
-        var remoteCommitSummary = ""
-        val encodedBranch = java.net.URLEncoder.encode(defaultBranch, "UTF-8")
-        val (commitCode, commitBody) = githubHttpGet(
-            "https://api.github.com/repos/$repoSlug/commits/$encodedBranch?per_page=1",
-            token
-        )
-        if (commitCode in 200..299 && commitBody.isNotBlank()) {
-            val arr = org.json.JSONArray(commitBody)
-            val firstCommit = arr.optJSONObject(0)
-            if (firstCommit != null) {
-                val sha = firstCommit.optString("sha", "").take(7)
-                val msg = firstCommit.optJSONObject("commit")?.optString("message", "")
-                    ?.lineSequence()?.firstOrNull()?.trim().orEmpty()
-                if (sha.isNotBlank()) {
-                    remoteCommitSummary = "Latest on '$defaultBranch': $sha" +
-                        if (msg.isNotBlank()) " (\"${msg.take(60)}\")" else ""
-                }
-            }
-        }
-
-        var remoteGradleInfo = ""
-        var (gradleCode, gradleBody) = githubHttpGet(
-            "https://api.github.com/repos/$repoSlug/contents/app/build.gradle.kts?ref=$encodedBranch",
-            token
-        )
-        if (gradleCode !in 200..299) {
-            val fallback = githubHttpGet(
-                "https://api.github.com/repos/$repoSlug/contents/build.gradle.kts?ref=$encodedBranch",
-                token
-            )
-            gradleCode = fallback.first
-            gradleBody = fallback.second
-        }
-        if (gradleCode in 200..299 && gradleBody.isNotBlank()) {
-            val fileObj = org.json.JSONObject(gradleBody)
-            val b64 = fileObj.optString("content", "").replace("\n", "")
-            if (b64.isNotBlank()) {
-                val decoded = String(android.util.Base64.decode(b64, android.util.Base64.DEFAULT), Charsets.UTF_8)
-                val (rCode, rName) = extractVersionFromGradleContent(decoded)
-                if (!rName.isNullOrBlank() || rCode != null) {
-                    val vNamePart = rName?.let { "v$it" } ?: "v?"
-                    val vCodePart = rCode?.let { " (build $it)" } ?: ""
-                    val newerHint = if ((rCode != null && rCode > installedVersionCode) || (!rName.isNullOrBlank() && rName != installedVersionName)) {
-                        " — newer than installed v$installedVersionName ($installedVersionCode)"
-                    } else {
-                        " — matches installed version"
-                    }
-                    remoteGradleInfo = " Repo build: $vNamePart$vCodePart$newerHint."
-                }
-            }
-        }
-
-        val status = buildString {
-            append("Connected to GitHub repo '$repoSlug'. ")
-            if (remoteCommitSummary.isNotBlank()) append("$remoteCommitSummary.")
-            if (remoteGradleInfo.isNotBlank()) append(remoteGradleInfo)
-            append(" No compiled .apk Release is published on GitHub yet — attach an .apk to a GitHub Release to download and install directly here.")
-        }
-        GitHubUpdateCheckResult(statusMessage = status)
-    } catch (e: Exception) {
-        GitHubUpdateCheckResult(
-            statusMessage = "GitHub update check failed: ${e.localizedMessage ?: "Network error"}"
-        )
     }
 }

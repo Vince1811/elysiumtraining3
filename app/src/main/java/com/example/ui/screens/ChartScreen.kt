@@ -786,7 +786,7 @@ fun ChartScreen() {
                                 )
                                 Spacer(Modifier.height(10.dp))
                                 AsyncImage(
-                                    model = r2File ?: matchedGuide.drawableResId,
+                                    model = r2File ?: matchedGuide.publicImageUrl.takeIf { it.isNotBlank() } ?: matchedGuide.drawableResId,
                                     contentDescription = "${exercise.name} Guide Infographic",
                                     contentScale = ContentScale.Fit,
                                     modifier = Modifier

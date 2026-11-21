@@ -153,7 +153,7 @@ class CloudflareR2Service(val context: Context) {
                 has("flat") && has("dumbbell") && has("bench") -> "bench_press"
                 has("bench") && has("press") && has("dumbbell") -> "bench_press"
                 has("bench") && has("press") -> "barbell_bench_press"
-                has("chest") && (has("fly") || has("flys") || has("flyes")) -> "chest_fly_dumbbell"
+                (has("chest") || has("dumbbell") || has("floor") || has("flat")) && !has("rear") && !has("reverse") && (has("fly") || has("flys") || has("flyes") || has("flies")) -> "chest_fly_dumbbell"
                 has("pec") && has("deck") -> "pec_deck"
                 has("cable") && has("crossover") -> "cable_crossover"
                 has("chest") && has("dip") -> "chest_dips"

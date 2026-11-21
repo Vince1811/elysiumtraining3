@@ -31,7 +31,9 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.RestaurantMenu
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
@@ -109,7 +111,31 @@ class MainActivity : FragmentActivity() {
                     }
                 }
 
+                val savedUpdateSource by preferences.appUpdateSourceFlow.collectAsState(initial = "")
+                val savedGithubToken by preferences.githubUpdateTokenFlow.collectAsState(initial = "")
+                val appUpdateAvailable by preferences.updateAvailableFlow.collectAsState(initial = false)
+                val appUpdateLabel by preferences.updateAvailableLabelFlow.collectAsState(initial = "")
+                val appUpdateMessage by preferences.updateAvailableMessageFlow.collectAsState(initial = "")
+                val appUpdateUrl by preferences.updateAvailableUrlFlow.collectAsState(initial = "")
+                val dismissedUpdateLabel by preferences.dismissedUpdateLabelFlow.collectAsState(initial = "")
+
                 if (userId != -1 && userExistsState == true) {
+                    LaunchedEffect(userId, savedUpdateSource, savedGithubToken) {
+                        if (savedUpdateSource.isNotBlank()) {
+                            val res = com.example.data.GitHubUpdateChecker.checkGitHubFilesForUpdate(
+                                context = applicationContext,
+                                rawSource = savedUpdateSource,
+                                token = savedGithubToken
+                            )
+                            preferences.saveUpdateStatus(
+                                available = res.isUpdateAvailable,
+                                label = res.updateLabel,
+                                message = res.statusMessage,
+                                url = res.apkDownloadUrl.orEmpty()
+                            )
+                        }
+                    }
+
                     LaunchedEffect(userId) {
                         com.example.data.CloudflareSyncService.appSyncScope.launch {
                             com.example.data.CloudflareSyncService(applicationContext)
@@ -126,7 +152,7 @@ class MainActivity : FragmentActivity() {
                         }
                     }
 
-                    DisposableEffect(userId) {
+                    DisposableEffect(userId, savedUpdateSource, savedGithubToken) {
                         val cm = applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
                         val callback = object : ConnectivityManager.NetworkCallback() {
                             override fun onAvailable(network: Network) {
@@ -142,6 +168,21 @@ class MainActivity : FragmentActivity() {
                                             preferencesManager = preferences,
                                             bundledGuides = ExerciseGuidesList.map { it.id to it.drawableResId }
                                         )
+                                }
+                                if (savedUpdateSource.isNotBlank()) {
+                                    appUiScope.launch {
+                                        val res = com.example.data.GitHubUpdateChecker.checkGitHubFilesForUpdate(
+                                            context = applicationContext,
+                                            rawSource = savedUpdateSource,
+                                            token = savedGithubToken
+                                        )
+                                        preferences.saveUpdateStatus(
+                                            available = res.isUpdateAvailable,
+                                            label = res.updateLabel,
+                                            message = res.statusMessage,
+                                            url = res.apkDownloadUrl.orEmpty()
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -400,6 +441,20 @@ class MainActivity : FragmentActivity() {
                                                                 fontWeight = FontWeight.Bold,
                                                                 modifier = Modifier.weight(1f)
                                                             )
+                                                            if (route == "settings" && appUpdateAvailable) {
+                                                                Surface(
+                                                                    shape = RoundedCornerShape(8.dp),
+                                                                    color = MaterialTheme.colorScheme.errorContainer
+                                                                ) {
+                                                                    Text(
+                                                                        text = "UPDATE",
+                                                                        style = MaterialTheme.typography.labelSmall,
+                                                                        fontWeight = FontWeight.Bold,
+                                                                        color = MaterialTheme.colorScheme.onErrorContainer,
+                                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                                    )
+                                                                }
+                                                            }
                                                         }
                                                     } else {
                                                         FilledTonalButton(
@@ -426,6 +481,20 @@ class MainActivity : FragmentActivity() {
                                                                 fontWeight = FontWeight.SemiBold,
                                                                 modifier = Modifier.weight(1f)
                                                             )
+                                                            if (route == "settings" && appUpdateAvailable) {
+                                                                Surface(
+                                                                    shape = RoundedCornerShape(8.dp),
+                                                                    color = MaterialTheme.colorScheme.primary
+                                                                ) {
+                                                                    Text(
+                                                                        text = "UPDATE",
+                                                                        style = MaterialTheme.typography.labelSmall,
+                                                                        fontWeight = FontWeight.Bold,
+                                                                        color = MaterialTheme.colorScheme.onPrimary,
+                                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                                    )
+                                                                }
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -461,7 +530,98 @@ class MainActivity : FragmentActivity() {
                             )
                         }
                     ) { innerPadding ->
-                        NavHost(navController = navController, startDestination = "workout", modifier = Modifier.padding(innerPadding)) {
+                        val activeContext = LocalContext.current
+                        val showAppUpdateBanner = appUpdateAvailable &&
+                            (appUpdateLabel.isBlank() || dismissedUpdateLabel != appUpdateLabel)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(innerPadding)
+                        ) {
+                            if (showAppUpdateBanner) {
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                        .testTag("in_app_update_banner"),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    tonalElevation = 2.dp
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.SystemUpdate,
+                                            contentDescription = "App update available",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                        Spacer(Modifier.width(10.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = if (appUpdateLabel.isNotBlank()) "Update Available: $appUpdateLabel" else "App Update Available",
+                                                style = MaterialTheme.typography.labelLarge,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                            )
+                                            if (appUpdateMessage.isNotBlank()) {
+                                                Text(
+                                                    text = appUpdateMessage,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    maxLines = 2,
+                                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
+                                                )
+                                            }
+                                        }
+                                        Spacer(Modifier.width(6.dp))
+                                        TextButton(
+                                            onClick = {
+                                                if (appUpdateUrl.isNotBlank()) {
+                                                    try {
+                                                        activeContext.startActivity(
+                                                            android.content.Intent(
+                                                                android.content.Intent.ACTION_VIEW,
+                                                                android.net.Uri.parse(appUpdateUrl)
+                                                            )
+                                                        )
+                                                    } catch (_: Exception) {
+                                                        navigateWithState("settings")
+                                                    }
+                                                } else {
+                                                    navigateWithState("settings")
+                                                }
+                                            },
+                                            modifier = Modifier.heightIn(min = 48.dp)
+                                        ) {
+                                            Text("Update", fontWeight = FontWeight.Bold)
+                                        }
+                                        IconButton(
+                                            onClick = {
+                                                appUiScope.launch {
+                                                    preferences.dismissUpdateNotification(appUpdateLabel)
+                                                }
+                                            },
+                                            modifier = Modifier.size(48.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Close,
+                                                contentDescription = "Dismiss update notice",
+                                                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            NavHost(
+                                navController = navController,
+                                startDestination = "workout",
+                                modifier = Modifier.weight(1f)
+                            ) {
                             composable("workout") { WorkoutScreen(repository, preferences, userId) }
                             composable("meals") { MealsScreen(repository, preferences, navController) }
                             composable("custom_meal_builder?mealId={mealId}") { backStackEntry -> 
@@ -496,6 +656,7 @@ class MainActivity : FragmentActivity() {
                                     onBack = { navController.popBackStack() }
                                 )
                             }
+                        }
                         }
                     }
                 } else if (userId == -1 || userExistsState == false) {

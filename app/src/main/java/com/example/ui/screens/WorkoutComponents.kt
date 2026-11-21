@@ -15,7 +15,9 @@ import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -167,7 +169,24 @@ fun ActiveWorkoutItem(
                     }
                 }
 
-                Spacer(Modifier.width(4.dp))
+                val hasGuidePicture = rememberIsExercisePictureAvailable(set.exerciseName)
+                if (onInfoClick != null && hasGuidePicture) {
+                    IconButton(
+                        onClick = onInfoClick,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("exercise_info_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Info,
+                            contentDescription = "View how to do ${set.exerciseName}",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                } else {
+                    Spacer(Modifier.width(4.dp))
+                }
 
                 IconButton(onClick = onDeleteClick, modifier = Modifier.size(30.dp)) {
                     Icon(

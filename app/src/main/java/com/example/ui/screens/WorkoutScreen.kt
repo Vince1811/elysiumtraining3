@@ -117,7 +117,6 @@ import com.example.data.WorkoutSet
 import com.example.data.WorkoutProfile
 import com.example.data.ProfileExercise
 import com.example.data.Medication
-import com.example.data.CloudflareR2Service
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.delay
@@ -2028,20 +2027,23 @@ val performSwapIfNeeded: () -> Unit = {
                                             ) {
                                                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f, fill = false)) {
                                                     Text(exercise.name, style = MaterialTheme.typography.bodyMedium)
-                                                    Spacer(Modifier.width(4.dp))
-                                                    IconButton(
-                                                        onClick = { 
-                                                            showFullOverviewInitially = false
-                                                            selectedExerciseGuideName = exercise.name 
-                                                        },
-                                                        modifier = Modifier.size(24.dp)
-                                                    ) {
-                                                        Icon(
-                                                            imageVector = Icons.Filled.Info,
-                                                            contentDescription = "View exercise guide",
-                                                            tint = MaterialTheme.colorScheme.primary,
-                                                            modifier = Modifier.size(16.dp)
-                                                        )
+                                                    val hasRoutineGuidePicture = rememberIsExercisePictureAvailable(exercise.name, preferences)
+                                                    if (hasRoutineGuidePicture) {
+                                                        Spacer(Modifier.width(4.dp))
+                                                        IconButton(
+                                                            onClick = {
+                                                                showFullOverviewInitially = false
+                                                                selectedExerciseGuideName = exercise.name
+                                                            },
+                                                            modifier = Modifier.size(32.dp)
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Filled.Info,
+                                                                contentDescription = "View exercise guide",
+                                                                tint = MaterialTheme.colorScheme.primary,
+                                                                modifier = Modifier.size(18.dp)
+                                                            )
+                                                        }
                                                     }
                                                 }
                                                 Text("${exercise.targetSets} × ${exercise.targetReps}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
@@ -2199,20 +2201,23 @@ val performSwapIfNeeded: () -> Unit = {
                                                             fontWeight = FontWeight.Medium,
                                                             textDecoration = if (exercise.isCompleted) androidx.compose.ui.text.style.TextDecoration.LineThrough else null
                                                         )
-                                                        Spacer(Modifier.width(4.dp))
-                                                        IconButton(
-                                                            onClick = { 
-                                                                showFullOverviewInitially = false
-                                                                selectedExerciseGuideName = exercise.name 
-                                                            },
-                                                            modifier = Modifier.size(24.dp)
-                                                        ) {
-                                                            Icon(
-                                                                imageVector = Icons.Filled.Info,
-                                                                contentDescription = "View exercise guide",
-                                                                tint = MaterialTheme.colorScheme.primary,
-                                                                modifier = Modifier.size(16.dp)
-                                                            )
+                                                        val hasProfileGuidePicture = rememberIsExercisePictureAvailable(exercise.name, preferences)
+                                                        if (hasProfileGuidePicture) {
+                                                            Spacer(Modifier.width(4.dp))
+                                                            IconButton(
+                                                                onClick = {
+                                                                    showFullOverviewInitially = false
+                                                                    selectedExerciseGuideName = exercise.name
+                                                                },
+                                                                modifier = Modifier.size(32.dp)
+                                                            ) {
+                                                                Icon(
+                                                                    imageVector = Icons.Filled.Info,
+                                                                    contentDescription = "View exercise guide",
+                                                                    tint = MaterialTheme.colorScheme.primary,
+                                                                    modifier = Modifier.size(18.dp)
+                                                                )
+                                                            }
                                                         }
                                                         if (exercise.isSuperSet) {
                                                             Spacer(Modifier.width(8.dp))
@@ -3019,35 +3024,7 @@ val performSwapIfNeeded: () -> Unit = {
                                 }
                             }
                         }
-                        val matchedAddGuide = remember(name) { findExerciseGuideOrNull(name) }
-                        val hasSyncAddPicture = remember(name, matchedAddGuide) {
-                            if (name.isBlank()) {
-                                false
-                            } else {
-                                (matchedAddGuide?.publicImageUrl?.isNotBlank() == true) ||
-                                    CloudflareR2Service.hasUniqueBundledGuide(
-                                        matchedAddGuide?.id,
-                                        matchedAddGuide?.drawableResId ?: 0
-                                    ) ||
-                                    (matchedAddGuide != null && CloudflareR2Service.getLocalGuidePictureFile(context, matchedAddGuide.id) != null) ||
-                                    CloudflareR2Service.getLocalExercisePictureFile(context, name) != null
-                            }
-                        }
-                        var isAddPictureAvailable by remember(name, hasSyncAddPicture) {
-                            mutableStateOf(hasSyncAddPicture)
-                        }
-                        LaunchedEffect(name, matchedAddGuide, hasSyncAddPicture) {
-                            if (name.isNotBlank() && !hasSyncAddPicture) {
-                                isAddPictureAvailable = CloudflareR2Service(context.applicationContext)
-                                    .isExercisePictureAvailable(
-                                        guideId = matchedAddGuide?.id,
-                                        exerciseName = name,
-                                        publicFallbackUrl = matchedAddGuide?.publicImageUrl.orEmpty(),
-                                        hasUniqueBundledGuide = false,
-                                        preferencesManager = preferences
-                                    )
-                            }
-                        }
+                        val isAddPictureAvailable = rememberIsExercisePictureAvailable(name, preferences)
                         if (name.isNotBlank() && isAddPictureAvailable) {
                             Spacer(Modifier.width(8.dp))
                             IconButton(

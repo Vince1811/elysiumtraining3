@@ -165,7 +165,8 @@ val ExerciseGuidesList = listOf(
             "Close: Bring the dumbbells back up in the same arc. Squeeze your chest as your hands come together above your chest.",
             "Repeat: Do the required reps with good form and a steady tempo."
         ),
-        executionTips = "Keep a slight bend in your elbows and move in a wide, controlled arc. Focus on a deep stretch and a strong chest squeeze at the top."
+        executionTips = "Keep a slight bend in your elbows and move in a wide, controlled arc. Focus on a deep stretch and a strong chest squeeze at the top.",
+        publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Done/Chest%20Fly%20Dumbbell%20Guide.png"
     ),
     ExerciseGuideInfo(
         id = "pec_deck",
@@ -715,7 +716,7 @@ fun findExerciseGuide(exerciseName: String): ExerciseGuideInfo {
             ExerciseGuidesList.first { it.id == "pec_deck" }
         clean.contains("crossover") || (clean.contains("cable") && clean.contains("fly")) ->
             ExerciseGuidesList.first { it.id == "cable_crossover" }
-        clean.contains("fly") && (clean.contains("chest") || clean.contains("dumbbell") || clean.contains("floor") || clean.contains("flat")) ->
+        (clean.contains("fly") || clean.contains("flies")) && !clean.contains("rear") && !clean.contains("reverse") && (clean.contains("chest") || clean.contains("dumbbell") || clean.contains("floor") || clean.contains("flat")) ->
             ExerciseGuidesList.first { it.id == "chest_fly_dumbbell" }
         clean.contains("landmine") && !clean.contains("squat") && !clean.contains("deadlift") && !clean.contains("row") ->
             ExerciseGuidesList.first { it.id == "landmine_press" }
@@ -832,12 +833,50 @@ fun findExerciseGuideOrNull(exerciseName: String): ExerciseGuideInfo? {
     val clean = exerciseName.lowercase().trim()
     if (clean.isBlank()) return null
     val matched = findExerciseGuide(exerciseName)
-    val explicitFallbackNeeded = !(clean.contains("bench") || clean.contains("chest press") || clean.contains("fly") || clean.contains("pec") || clean.contains("landmine") || clean.contains("shadow") || clean.contains("box") || clean.contains("jab") || clean.contains("1-2") || clean.contains("slip") || clean.contains("footwork") || clean.contains("flurry") || clean.contains("deadlift") || clean.contains("rdl") || clean.contains("squat") || clean.contains("goblet") || clean.contains("leg press") || clean.contains("lunge") || clean.contains("calf") || clean.contains("lat pull") || clean.contains("pulldown") || clean.contains("row") || clean.contains("arnold") || clean.contains("shoulder press") || clean.contains("overhead press") || clean.contains("military press") || clean.contains("ohp") || clean.contains("lateral raise") || clean.contains("side raise") || clean.contains("pushdown") || clean.contains("dip") || clean.contains("21") || clean.contains("curl") || clean.contains("bicep") || clean.contains("plank") || clean.contains("knee raise") || clean.contains("hanging") || clean.contains("leg raise") || clean.contains("bicycle") || clean.contains("crunch") || clean.contains("climber") || clean.contains("mountain") || clean.contains("pushup") || clean.contains("push up") || clean.contains("push-up") || clean.contains("pullup") || clean.contains("pull up") || clean.contains("pull-up") || clean.contains("chin"))
+    val explicitFallbackNeeded = !(clean.contains("bench") || clean.contains("chest press") || clean.contains("fly") || clean.contains("flies") || clean.contains("pec") || clean.contains("landmine") || clean.contains("shadow") || clean.contains("box") || clean.contains("jab") || clean.contains("1-2") || clean.contains("slip") || clean.contains("footwork") || clean.contains("flurry") || clean.contains("deadlift") || clean.contains("rdl") || clean.contains("squat") || clean.contains("goblet") || clean.contains("leg press") || clean.contains("lunge") || clean.contains("calf") || clean.contains("lat pull") || clean.contains("pulldown") || clean.contains("row") || clean.contains("arnold") || clean.contains("shoulder press") || clean.contains("overhead press") || clean.contains("military press") || clean.contains("ohp") || clean.contains("lateral raise") || clean.contains("side raise") || clean.contains("pushdown") || clean.contains("dip") || clean.contains("21") || clean.contains("curl") || clean.contains("bicep") || clean.contains("plank") || clean.contains("knee raise") || clean.contains("hanging") || clean.contains("leg raise") || clean.contains("bicycle") || clean.contains("crunch") || clean.contains("climber") || clean.contains("mountain") || clean.contains("pushup") || clean.contains("push up") || clean.contains("push-up") || clean.contains("pullup") || clean.contains("pull up") || clean.contains("pull-up") || clean.contains("chin"))
     if (explicitFallbackNeeded && matched.id == ExerciseGuidesList.first().id) {
         val wordMatch = matched.title.lowercase().split(" ").any { word -> word.length > 3 && clean.contains(word) }
         if (!wordMatch) return null
     }
     return matched
+}
+
+@Composable
+fun rememberIsExercisePictureAvailable(
+    exerciseName: String,
+    preferencesManager: PreferencesManager? = null
+): Boolean {
+    val context = LocalContext.current
+    val prefs = remember(context, preferencesManager) {
+        preferencesManager ?: PreferencesManager(context.applicationContext)
+    }
+    val matchedGuide = remember(exerciseName) { findExerciseGuideOrNull(exerciseName) }
+    val hasSyncPicture = remember(exerciseName, matchedGuide) {
+        if (exerciseName.isBlank()) {
+            false
+        } else {
+            (matchedGuide?.publicImageUrl?.isNotBlank() == true) ||
+                CloudflareR2Service.hasUniqueBundledGuide(
+                    matchedGuide?.id,
+                    matchedGuide?.drawableResId ?: 0
+                ) ||
+                (matchedGuide != null && CloudflareR2Service.getLocalGuidePictureFile(context, matchedGuide.id) != null) ||
+                CloudflareR2Service.getLocalExercisePictureFile(context, exerciseName) != null
+        }
+    }
+    var isAvailable by remember(exerciseName, hasSyncPicture) { mutableStateOf(hasSyncPicture) }
+    LaunchedEffect(exerciseName, matchedGuide, hasSyncPicture) {
+        if (exerciseName.isNotBlank() && !hasSyncPicture) {
+            isAvailable = CloudflareR2Service(context.applicationContext).isExercisePictureAvailable(
+                guideId = matchedGuide?.id,
+                exerciseName = exerciseName,
+                publicFallbackUrl = matchedGuide?.publicImageUrl.orEmpty(),
+                hasUniqueBundledGuide = false,
+                preferencesManager = prefs
+            )
+        }
+    }
+    return isAvailable
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

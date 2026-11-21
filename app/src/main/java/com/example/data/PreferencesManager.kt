@@ -59,6 +59,11 @@ class PreferencesManager(private val context: Context) {
         val LAST_BIOMETRIC_USER_ID = androidx.datastore.preferences.core.intPreferencesKey("last_biometric_user_id")
         val APP_UPDATE_SOURCE = stringPreferencesKey("app_update_source")
         val GITHUB_UPDATE_TOKEN = stringPreferencesKey("github_update_token")
+        val UPDATE_AVAILABLE_FLAG = androidx.datastore.preferences.core.booleanPreferencesKey("update_available_flag")
+        val UPDATE_AVAILABLE_LABEL = stringPreferencesKey("update_available_label")
+        val UPDATE_AVAILABLE_MESSAGE = stringPreferencesKey("update_available_message")
+        val UPDATE_AVAILABLE_URL = stringPreferencesKey("update_available_url")
+        val DISMISSED_UPDATE_LABEL = stringPreferencesKey("dismissed_update_label")
     }
 
     val medicationRemindersEnabledFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
@@ -287,6 +292,41 @@ class PreferencesManager(private val context: Context) {
 
     suspend fun saveGithubUpdateToken(token: String) {
         context.dataStore.edit { it[GITHUB_UPDATE_TOKEN] = token }
+    }
+
+    val updateAvailableFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[UPDATE_AVAILABLE_FLAG] ?: false
+    }
+
+    val updateAvailableLabelFlow: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[UPDATE_AVAILABLE_LABEL] ?: ""
+    }
+
+    val updateAvailableMessageFlow: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[UPDATE_AVAILABLE_MESSAGE] ?: ""
+    }
+
+    val updateAvailableUrlFlow: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[UPDATE_AVAILABLE_URL] ?: ""
+    }
+
+    val dismissedUpdateLabelFlow: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[DISMISSED_UPDATE_LABEL] ?: ""
+    }
+
+    suspend fun saveUpdateStatus(available: Boolean, label: String, message: String, url: String) {
+        context.dataStore.edit {
+            it[UPDATE_AVAILABLE_FLAG] = available
+            it[UPDATE_AVAILABLE_LABEL] = label
+            it[UPDATE_AVAILABLE_MESSAGE] = message
+            it[UPDATE_AVAILABLE_URL] = url
+        }
+    }
+
+    suspend fun dismissUpdateNotification(label: String) {
+        context.dataStore.edit {
+            it[DISMISSED_UPDATE_LABEL] = label
+        }
     }
 
     val pendingD1UploadFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
