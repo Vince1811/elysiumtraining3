@@ -123,7 +123,7 @@ class CloudflareR2Service(val context: Context) {
                 "incline_bench_barbell", "incline_bench",
                 "decline_bench_barbell", "decline_bench_dumbbell",
                 "barbell_bench_press", "bench_press",
-                "chest_fly_dumbbell", "pec_deck", "cable_crossover",
+                "chest_fly_dumbbell", "pec_deck", "cable_crossover", "cable_crossover_high_to_low", "cable_fly",
                 "chest_dips", "weighted_chest_dips", "landmine_press",
                 "pushup", "wide_grip_pushup", "incline_pushup", "decline_pushup",
                 "bicep_curl", "bicep_21s", "hammer_curl", "concentration_curl",
@@ -151,12 +151,14 @@ class CloudflareR2Service(val context: Context) {
                 has("decline") && (has("dumbbell") || hasWord("db")) && has("bench") -> "decline_bench_dumbbell"
                 has("decline") && has("bench") -> "decline_bench_barbell"
                 has("barbell") && has("bench") -> "barbell_bench_press"
-                has("flat") && has("dumbbell") && has("bench") -> "bench_press"
+                has("flat") && has("dumbbell") && (has("bench") || has("press")) -> "bench_press"
                 has("bench") && has("press") && has("dumbbell") -> "bench_press"
                 has("bench") && has("press") -> "barbell_bench_press"
-                (has("chest") || has("dumbbell") || has("floor") || has("flat")) && !has("rear") && !has("reverse") && (has("fly") || has("flys") || has("flyes") || has("flies")) -> "chest_fly_dumbbell"
+                has("cable") && (has("crossover") || has("fly") || has("flies")) && has("high to low") && !has("rear") && !has("reverse") -> "cable_crossover_high_to_low"
+                has("cable") && has("crossover") && !has("rear") && !has("reverse") -> "cable_crossover"
+                has("cable") && (has("fly") || has("flies")) && !has("rear") && !has("reverse") -> "cable_fly"
+                (has("chest") || has("dumbbell") || has("floor") || has("flat")) && !has("rear") && !has("reverse") && !has("cable") && (has("fly") || has("flys") || has("flyes") || has("flies")) -> "chest_fly_dumbbell"
                 has("pec") && has("deck") -> "pec_deck"
-                has("cable") && has("crossover") && !has("rear") && !has("reverse") && !has("high to low") -> "cable_crossover"
                 has("weighted") && has("chest") && has("dip") -> "weighted_chest_dips"
                 has("chest") && has("dip") -> "chest_dips"
                 has("landmine") -> "landmine_press"
@@ -195,9 +197,12 @@ class CloudflareR2Service(val context: Context) {
             "decline_bench_barbell",
             "decline_bench_dumbbell",
             "barbell_bench_press",
+            "bench_press",
             "chest_fly_dumbbell",
             "pec_deck",
             "cable_crossover",
+            "cable_crossover_high_to_low",
+            "cable_fly",
             "chest_dips",
             "weighted_chest_dips",
             "landmine_press",

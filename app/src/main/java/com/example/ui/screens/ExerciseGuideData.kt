@@ -85,7 +85,8 @@ val ExerciseGuidesList = listOf(
             "Press dumbbells smoothly upward until arms are extended.",
             "Lower with control back to chest level under tempo."
         ),
-        executionTips = "Retract scapulae into the bench and keep elbows at a 45-60° angle to optimize chest activation and protect rotator cuffs."
+        executionTips = "Retract scapulae into the bench and keep elbows at a 45-60° angle to optimize chest activation and protect rotator cuffs.",
+        publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Done/Flat%20Dumbbell%20Bench%20Press%20Guide.png"
     ),
     ExerciseGuideInfo(
         id = "incline_bench_barbell",
@@ -200,6 +201,38 @@ val ExerciseGuidesList = listOf(
         ),
         executionTips = "Set the pulleys low and bring your hands up and across in front of your chest. Focus on squeezing your upper chest at the top of the movement.",
         publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Done/Cable%20Crossover_%20Upper%20Chest%20Guide.png"
+    ),
+    ExerciseGuideInfo(
+        id = "cable_crossover_high_to_low",
+        title = "CABLE CROSSOVER (HIGH-TO-LOW)",
+        category = "Upper Body Strength & Hypertrophy",
+        accentColor = 0xFF00E5FFL,
+        drawableResId = R.drawable.guide_bench_press,
+        targetMuscles = listOf("Lower Chest (sternocostal pectoralis major)", "Front shoulders (anterior deltoids)", "Arms (biceps stabilizer)"),
+        steps = listOf(
+            "Setup: Set both cable pulleys to a high position above shoulder height. Grab a D-handle in each hand and step forward into a staggered stance.",
+            "Position: Keep a slight bend in your elbows, chest up, and torso leaned slightly forward for balance.",
+            "Pull Down & Across: Sweep your hands downward and inward until your hands meet or cross slightly in front of your lower chest.",
+            "Control Return: Slowly raise your arms back along the same arc until you feel a controlled chest stretch."
+        ),
+        executionTips = "Keep elbows softly bent at a fixed angle throughout the arc and squeeze your lower chest firmly at the bottom.",
+        publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Done/Cable%20Crossover%20High-to-Low%20Guide.png"
+    ),
+    ExerciseGuideInfo(
+        id = "cable_fly",
+        title = "CABLE FLY",
+        category = "Upper Body Strength & Hypertrophy",
+        accentColor = 0xFF00E5FFL,
+        drawableResId = R.drawable.guide_bench_press,
+        targetMuscles = listOf("Chest (pectoralis major)", "Front shoulders (anterior deltoids)", "Arms (biceps stabilizer)"),
+        steps = listOf(
+            "Setup: Set both cable pulleys to chest height, grasp a handle in each hand, and step forward into a stable split stance.",
+            "Start Position: Open your arms wide with a slight, fixed bend in your elbows until you feel a comfortable stretch across your chest.",
+            "Fly Together: Sweep both arms forward in a wide hugging arc until your hands meet in front of your mid-chest.",
+            "Control Return: Slowly open your arms back to the wide starting stretch while keeping constant tension on the cables."
+        ),
+        executionTips = "Imagine hugging a large tree: keep your shoulders back, torso steady, and elbow angle locked throughout every rep.",
+        publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Done/Cable%20Fly%20Chest%20Training%20Guide.png"
     ),
     ExerciseGuideInfo(
         id = "chest_dips",
@@ -817,9 +850,16 @@ fun findExerciseGuide(exerciseName: String): ExerciseGuideInfo {
         // Chest Flys / Pec Deck / Cable Crossover / Landmine / Dips
         clean.contains("pec deck") ->
             ExerciseGuidesList.first { it.id == "pec_deck" }
-        (clean.contains("crossover") || (clean.contains("cable") && (clean.contains("fly") || clean.contains("flies")))) &&
-            !clean.contains("rear") && !clean.contains("reverse") && !clean.contains("high-to-low") && !clean.contains("high to low") ->
+        (clean.contains("crossover") || clean.contains("cable")) &&
+            (clean.contains("high-to-low") || clean.contains("high to low")) &&
+            !clean.contains("rear") && !clean.contains("reverse") && !clean.contains("row") ->
+            ExerciseGuidesList.first { it.id == "cable_crossover_high_to_low" }
+        clean.contains("crossover") &&
+            !clean.contains("rear") && !clean.contains("reverse") ->
             ExerciseGuidesList.first { it.id == "cable_crossover" }
+        clean.contains("cable") && (clean.contains("fly") || clean.contains("flies")) &&
+            !clean.contains("rear") && !clean.contains("reverse") ->
+            ExerciseGuidesList.first { it.id == "cable_fly" }
         (clean.contains("fly") || clean.contains("flies")) && !clean.contains("rear") && !clean.contains("reverse") && (clean.contains("chest") || clean.contains("dumbbell") || clean.contains("floor") || clean.contains("flat")) ->
             ExerciseGuidesList.first { it.id == "chest_fly_dumbbell" }
         clean.contains("landmine") && !clean.contains("squat") && !clean.contains("deadlift") && !clean.contains("row") ->
@@ -842,7 +882,8 @@ fun findExerciseGuide(exerciseName: String): ExerciseGuideInfo {
                 ExerciseGuidesList.first { it.id == "decline_bench_barbell" }
             }
         }
-        clean.contains("bench") || clean.contains("chest press") -> {
+        clean.contains("bench") || clean.contains("chest press") ||
+            (clean.contains("flat") && clean.contains("dumbbell") && clean.contains("press")) -> {
             if (clean.contains("dumbbell")) {
                 ExerciseGuidesList.first { it.id == "bench_press" }
             } else {
@@ -970,8 +1011,11 @@ private fun isNonBarbellBicepCurl(clean: String): Boolean {
 fun findExerciseGuideOrNull(exerciseName: String): ExerciseGuideInfo? {
     val clean = exerciseName.lowercase().trim()
     if (clean.isBlank()) return null
-    val isFlyOrCrossoverLike = (clean.contains("crossover") || clean.contains("fly") || clean.contains("flies")) &&
-        !clean.contains("rear") && !clean.contains("reverse") && !clean.contains("high-to-low") && !clean.contains("high to low")
+    val isFlyOrCrossoverLike = !clean.contains("rear") && !clean.contains("reverse") && (
+        clean.contains("crossover") ||
+            ((clean.contains("fly") || clean.contains("flies")) &&
+                (clean.contains("cable") || clean.contains("chest") || clean.contains("dumbbell") || clean.contains("floor") || clean.contains("flat")))
+        )
     val isPushdownLike = clean.contains("pushdown") || clean.contains("push down") || clean.contains("push-down") || clean.contains("pressdown") || clean.contains("press down")
     val isBicepCurlLike = clean.contains("21s") || clean.contains("21's") ||
         (clean.contains("21") && (clean.contains("bicep") || clean.contains("curl") || clean.contains("barbell") || clean.contains("ez"))) ||
@@ -979,6 +1023,7 @@ fun findExerciseGuideOrNull(exerciseName: String): ExerciseGuideInfo? {
         clean.contains("hammer") ||
         ((clean.contains("curl") || clean.contains("bicep")) && !isNonBarbellBicepCurl(clean))
     val isChestPressLike = clean.contains("bench") || clean.contains("chest press") ||
+        (clean.contains("flat") && clean.contains("dumbbell") && clean.contains("press")) ||
         ((clean.contains("incline") || clean.contains("decline")) && clean.contains("press") &&
             !clean.contains("overhead") && !clean.contains("shoulder") && !clean.contains("leg"))
     val isLegMachineLike = (clean.contains("leg") && clean.contains("extension")) ||
