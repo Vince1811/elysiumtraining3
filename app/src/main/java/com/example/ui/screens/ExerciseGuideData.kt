@@ -118,7 +118,8 @@ val ExerciseGuidesList = listOf(
             "Lower: Lower the dumbbells in a controlled way to the sides of your chest. Keep your elbows at about 45 degrees.",
             "Repeat: Do the required reps with good form and a steady tempo."
         ),
-        executionTips = "Target your upper chest, shoulders and triceps: keep bench angle between 30-45° and elbows at 45°."
+        executionTips = "Target your upper chest, shoulders and triceps: keep bench angle between 30-45° and elbows at 45°.",
+        publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Done/Incline%20Dumbbell%20Press%20Guide.png"
     ),
     ExerciseGuideInfo(
         id = "decline_bench_barbell",
@@ -345,6 +346,22 @@ val ExerciseGuidesList = listOf(
         executionTips = "Brace abs and glutes firmly before pressing to lock your spine and prevent hyperextension."
     ),
     ExerciseGuideInfo(
+        id = "dumbbell_shoulder_press",
+        title = "DUMBBELL SHOULDER PRESS",
+        category = "Upper Body Strength & Hypertrophy",
+        accentColor = 0xFF00E5FFL,
+        drawableResId = R.drawable.guide_overhead_press,
+        targetMuscles = listOf("Anterior & lateral deltoids (shoulders)", "Triceps", "Upper chest (clavicular head)"),
+        steps = listOf(
+            "Setup: Sit on an upright bench (or stand tall) with a dumbbell in each hand at shoulder height, palms facing forward and forearms vertical.",
+            "Brace Core: Plant your feet flat on the floor, engage your abs, and avoid arching your lower back.",
+            "Press Overhead: Drive the dumbbells smoothly upward in a slight arc until your arms reach near-full extension overhead without clanking the weights.",
+            "Control Lowering: Lower the dumbbells slowly back down to shoulder/ear level with elbows angled slightly forward."
+        ),
+        executionTips = "Keep your elbows slightly in front of your torso (scapular plane) rather than flared straight out to protect your shoulder joints.",
+        publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Done/Dumbbell%20Shoulder%20Press%20Guide.png"
+    ),
+    ExerciseGuideInfo(
         id = "lateral_raise",
         title = "LATERAL RAISES",
         category = "Upper Body Strength & Hypertrophy",
@@ -358,6 +375,38 @@ val ExerciseGuidesList = listOf(
             "Lower slowly to emphasize the eccentric phase."
         ),
         executionTips = "Lead with the elbows and maintain a slight forward lean to isolate the lateral deltoid head."
+    ),
+    ExerciseGuideInfo(
+        id = "cable_lateral_raise",
+        title = "CABLE LATERAL RAISES",
+        category = "Upper Body Strength & Hypertrophy",
+        accentColor = 0xFF00E5FFL,
+        drawableResId = R.drawable.guide_lateral_raise,
+        targetMuscles = listOf("Side shoulders (lateral deltoids)", "Supraspinatus", "Upper traps (stabilizer)"),
+        steps = listOf(
+            "Setup: Set a cable pulley to the lowest setting with a single D-handle and stand sideways beside the machine.",
+            "Start Position: Grasp the handle with your outside hand (cable running in front of or behind your body) and keep a slight bend in your elbow.",
+            "Raise Outward: Sweep your arm out and up in a smooth arc until your arm is parallel to the floor at shoulder height, leading with your elbow.",
+            "Control Return: Lower your arm slowly back toward your hip while keeping constant cable tension on the side deltoid."
+        ),
+        executionTips = "Keep your torso upright without leaning or swinging, and stop right at shoulder height to keep tension strictly on the lateral deltoid.",
+        publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Done/Cable%20Lateral%20Raise%20Guide.png"
+    ),
+    ExerciseGuideInfo(
+        id = "cable_front_raise",
+        title = "CABLE FRONT RAISES",
+        category = "Upper Body Strength & Hypertrophy",
+        accentColor = 0xFF00E5FFL,
+        drawableResId = R.drawable.guide_lateral_raise,
+        targetMuscles = listOf("Front shoulders (anterior deltoids)", "Upper chest (clavicular pectoralis)", "Core stabilizers"),
+        steps = listOf(
+            "Setup: Set a cable pulley to the lowest position with a straight bar, rope, or single D-handle and stand facing away from the stack.",
+            "Stance: Step slightly forward into a stable stance with the cable passing beside your hip or between your legs, core braced and shoulders down.",
+            "Raise Forward: With a slight bend in your elbow, lift the handle smoothly forward and upward until your arm reaches shoulder height.",
+            "Control Return: Lower slowly back to the starting position while resisting the cable pull and keeping constant tension on your front delt."
+        ),
+        executionTips = "Avoid using hip swing or leaning backward as you lift; pause briefly at shoulder height for maximum anterior deltoid activation.",
+        publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Done/Cable%20Front%20Raises_%20Deltoid%20Training%20Guide.png"
     ),
     ExerciseGuideInfo(
         id = "tricep_pushdown",
@@ -389,6 +438,54 @@ val ExerciseGuidesList = listOf(
         ),
         executionTips = "Keep elbows locked at your ribs and separate the rope handles outward at full lockout to maximize lateral head contraction.",
         publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Cable%20Rope%20Pushdowns_%20Triceps%20Guide.png"
+    ),
+    ExerciseGuideInfo(
+        id = "dumbbell_overhead_tricep_extension",
+        title = "DUMBBELL OVERHEAD TRICEP EXTENSIONS",
+        category = "Upper Body Strength & Hypertrophy",
+        accentColor = 0xFF00E5FFL,
+        drawableResId = R.drawable.guide_tricep_pushdown,
+        targetMuscles = listOf("Triceps (long, lateral & medial heads)", "Forearms", "Core (stabilizer)"),
+        steps = listOf(
+            "Setup: Sit on a bench with back support (or stand tall) and cup one dumbbell overhead with both hands pressed under the top inner plate.",
+            "Start Position: Press the dumbbell straight overhead with a slight softness in your elbows, shoulders down, and core braced tight.",
+            "Lower Behind Head: Keep your upper arms stationary and elbows tucked close to your head as you lower the dumbbell slowly behind your neck until your forearms pass 90 degrees.",
+            "Extend Overhead: Drive smoothly through your triceps to press the dumbbell back up to full overhead extension without flaring your elbows wide."
+        ),
+        executionTips = "Keep upper arms vertical and elbows tucked toward your ears throughout each rep to maximize the long-head tricep stretch.",
+        publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Done/Dumbbell%20Overhead%20Tricep%20Extension%20Guide.png"
+    ),
+    ExerciseGuideInfo(
+        id = "cable_tricep_kickback",
+        title = "CABLE TRICEP KICKBACKS",
+        category = "Upper Body Strength & Hypertrophy",
+        accentColor = 0xFF00E5FFL,
+        drawableResId = R.drawable.guide_tricep_pushdown,
+        targetMuscles = listOf("Triceps (lateral, long & medial heads)", "Rear Deltoids (stabilizer)"),
+        steps = listOf(
+            "Setup: Set a cable pulley to waist or low height, attach a single handle or remove the attachment to grip the cable ball, and stand facing the machine.",
+            "Hinge & Pin Elbow: Hinge forward at the hips with a flat back, brace your core, and bring your working upper arm parallel to the torso with elbow pinned at your side.",
+            "Extend Back: Press the cable straight back by extending only at the elbow until your arm is fully straight behind you, squeezing the triceps at lockout.",
+            "Control Return: Slowly bend at the elbow under constant cable tension back to a 90-degree angle without letting your upper arm drop or swing."
+        ),
+        executionTips = "Keep your upper arm locked parallel to the floor throughout the entire set and pause briefly at full extension for peak tricep contraction.",
+        publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Done/Cable%20Kickbacks_%20Build%20Stronger%20Triceps.png"
+    ),
+    ExerciseGuideInfo(
+        id = "dumbbell_tricep_kickback",
+        title = "DUMBBELL TRICEP KICKBACKS",
+        category = "Upper Body Strength & Hypertrophy",
+        accentColor = 0xFF00E5FFL,
+        drawableResId = R.drawable.guide_tricep_pushdown,
+        targetMuscles = listOf("Triceps (lateral, long & medial heads)", "Rear Deltoids (stabilizer)"),
+        steps = listOf(
+            "Setup: Hold a dumbbell in each hand (or support one hand on a flat bench for single-arm kickbacks) with palms facing your torso and knees slightly bent.",
+            "Hinge & Pin Elbows: Hinge forward at the hips until your torso is nearly parallel to the floor with a flat back, and raise your upper arms parallel to your sides.",
+            "Extend Back: Keep your elbows pinned stationary as you extend your forearms backward until both arms lock out straight, squeezing your triceps hard at the top.",
+            "Control Return: Lower the dumbbells slowly back to the 90-degree starting position without swinging your shoulders or dropping your elbows."
+        ),
+        executionTips = "Use controlled weight you can pause cleanly at full elbow lockout—avoid swinging the dumbbells with momentum.",
+        publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Done/Dumbbell%20Kickbacks%20Training%20Guide.png"
     ),
 
     // Row 2 - Lower Body & Core (Green 0xFF00E676)
@@ -630,7 +727,7 @@ val ExerciseGuidesList = listOf(
     ),
     ExerciseGuideInfo(
         id = "arnold_press",
-        title = "ARNOLD PRESS",
+        title = "DUMBBELL ARNOLD PRESS",
         category = "Conditioning & Calisthenics",
         accentColor = 0xFFFF3D00L,
         drawableResId = R.drawable.guide_arnold_press,
@@ -641,7 +738,8 @@ val ExerciseGuidesList = listOf(
             "Finish at top lockout with palms facing forward.",
             "Lower and rotate in reverse back to starting chest position."
         ),
-        executionTips = "Smooth, continuous rotation through the arc targets the anterior, lateral, and posterior deltoid fibers."
+        executionTips = "Smooth, continuous rotation through the arc targets the anterior, lateral, and posterior deltoid fibers.",
+        publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Done/Dumbbell%20Arnold%20Press%20Guide.png"
     ),
     ExerciseGuideInfo(
         id = "bicep_curl",
@@ -661,6 +759,38 @@ val ExerciseGuidesList = listOf(
         publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Done/Barbell%20Bicep%20Curls%20Guide.png"
     ),
     ExerciseGuideInfo(
+        id = "dumbbell_bicep_curl",
+        title = "DUMBBELL BICEP CURLS",
+        category = "Upper Body Strength & Hypertrophy",
+        accentColor = 0xFF00E5FFL,
+        drawableResId = R.drawable.guide_hammer_curl,
+        targetMuscles = listOf("Biceps (brachii)", "Brachialis (under biceps)", "Brachioradialis (forearm)"),
+        steps = listOf(
+            "Setup: Stand upright with feet shoulder-width apart, holding a dumbbell in each hand at your sides with palms facing forward (or rotating into supination).",
+            "Anchor Elbows: Pin your upper arms and elbows close to your ribs, pull your shoulders back, and brace your core.",
+            "Curl Upward: Bend smoothly at the elbows to curl the dumbbells up toward your shoulders without swinging your torso.",
+            "Control Return: Lower the dumbbells slowly under full control back to full arm extension."
+        ),
+        executionTips = "Keep your upper arms stationary against your torso and control the lowering phase to maximize bicep tension.",
+        publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Done/Dumbbell%20Bicep%20Curls%20Infographic.png"
+    ),
+    ExerciseGuideInfo(
+        id = "cable_bicep_curl",
+        title = "CABLE BICEP CURLS",
+        category = "Upper Body Strength & Hypertrophy",
+        accentColor = 0xFF00E5FFL,
+        drawableResId = R.drawable.guide_hammer_curl,
+        targetMuscles = listOf("Biceps (brachii)", "Brachialis (under biceps)", "Brachioradialis (forearm)"),
+        steps = listOf(
+            "Setup: Attach a straight bar, EZ-curl bar, or handle to a low cable pulley and stand upright facing the machine.",
+            "Start Position: Grasp the attachment with an underhand (palms-up) shoulder-width grip, pin your elbows to your sides, and brace your core.",
+            "Curl Upward: Bend smoothly at the elbows to curl the bar upward toward your shoulders while keeping constant tension from the cable.",
+            "Control Return: Lower the bar slowly back to full arm extension without letting the weight stack touch down between reps."
+        ),
+        executionTips = "Keep your elbows locked at your ribs and squeeze hard at the top; the cable provides continuous tension throughout the entire range of motion.",
+        publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Done/Cable%20Bicep%20Curl%20Infographic.png"
+    ),
+    ExerciseGuideInfo(
         id = "bicep_21s",
         title = "21s BICEPS FINISHER",
         category = "Upper Body Strength & Hypertrophy",
@@ -677,7 +807,7 @@ val ExerciseGuidesList = listOf(
     ),
     ExerciseGuideInfo(
         id = "hammer_curl",
-        title = "HAMMER CURLS",
+        title = "DUMBBELL HAMMER CURLS",
         category = "Conditioning & Calisthenics",
         accentColor = 0xFFFF3D00L,
         drawableResId = R.drawable.guide_hammer_curl,
@@ -689,7 +819,8 @@ val ExerciseGuidesList = listOf(
             "Lower: Lower the dumbbells in a controlled way until your arms are fully extended.",
             "Repeat: Do the required reps with good form."
         ),
-        executionTips = "Build thicker and stronger arms: keep palms facing each other throughout and avoid swinging your torso."
+        executionTips = "Build thicker and stronger arms: keep palms facing each other throughout and avoid swinging your torso.",
+        publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Done/Hammer%20Curls_%20Build%20Stronger%20Arms.png"
     ),
     ExerciseGuideInfo(
         id = "concentration_curl",
@@ -936,15 +1067,29 @@ fun findExerciseGuide(exerciseName: String): ExerciseGuideInfo {
         clean.contains("row") ->
             ExerciseGuidesList.first { it.id == "cable_row" }
 
-        // Shoulder / Overhead Press
+        // Shoulder / Overhead Press & Raises
         clean.contains("arnold") ->
             ExerciseGuidesList.first { it.id == "arnold_press" }
+        ((clean.contains("dumbbell") || clean.contains("db")) &&
+            (clean.contains("shoulder press") || clean.contains("overhead press") || clean.contains("military press") || clean.contains("ohp"))) ||
+            clean == "shoulder press" || clean == "seated shoulder press" || clean == "standing shoulder press" ->
+            ExerciseGuidesList.first { it.id == "dumbbell_shoulder_press" }
         clean.contains("shoulder press") || clean.contains("overhead press") || clean.contains("military press") || clean.contains("ohp") ->
             ExerciseGuidesList.first { it.id == "overhead_press" }
+        clean.contains("cable") && clean.contains("front raise") ->
+            ExerciseGuidesList.first { it.id == "cable_front_raise" }
+        clean.contains("cable") && (clean.contains("lateral raise") || clean.contains("side raise")) ->
+            ExerciseGuidesList.first { it.id == "cable_lateral_raise" }
         clean.contains("lateral raise") || clean.contains("side raise") ->
             ExerciseGuidesList.first { it.id == "lateral_raise" }
 
-        // Pushdown / Dips
+        // Pushdown / Tricep Extensions / Dips
+        isDumbbellOverheadTricepExtension(clean) ->
+            ExerciseGuidesList.first { it.id == "dumbbell_overhead_tricep_extension" }
+        isCableTricepKickback(clean) ->
+            ExerciseGuidesList.first { it.id == "cable_tricep_kickback" }
+        isDumbbellTricepKickback(clean) ->
+            ExerciseGuidesList.first { it.id == "dumbbell_tricep_kickback" }
         clean.contains("rope") && (clean.contains("pushdown") || clean.contains("push down") || clean.contains("push-down") || clean.contains("pressdown") || clean.contains("press down")) ->
             ExerciseGuidesList.first { it.id == "tricep_rope_pushdown" }
         clean.contains("pushdown") || clean.contains("push down") || clean.contains("push-down") || clean.contains("pressdown") || (clean.contains("tricep") && clean.contains("cable") && !clean.contains("kickback") && !clean.contains("overhead")) ->
@@ -961,8 +1106,12 @@ fun findExerciseGuide(exerciseName: String): ExerciseGuideInfo {
             ExerciseGuidesList.first { it.id == "bicep_21s" }
         clean.contains("concentration") ->
             ExerciseGuidesList.first { it.id == "concentration_curl" }
-        clean.contains("hammer") ->
+        clean.contains("hammer") && !clean.contains("cable") && !clean.contains("kettlebell") && !clean.contains("band") && !clean.contains("preacher") && !clean.contains("strength") && !clean.contains("chin") ->
             ExerciseGuidesList.first { it.id == "hammer_curl" }
+        isDumbbellBicepCurl(clean) ->
+            ExerciseGuidesList.first { it.id == "dumbbell_bicep_curl" }
+        isCableBicepCurl(clean) ->
+            ExerciseGuidesList.first { it.id == "cable_bicep_curl" }
         (clean.contains("curl") || clean.contains("bicep")) && !isNonBarbellBicepCurl(clean) ->
             ExerciseGuidesList.first { it.id == "bicep_curl" }
 
@@ -997,6 +1146,55 @@ fun findExerciseGuide(exerciseName: String): ExerciseGuideInfo {
     }
 }
 
+private fun isDumbbellBicepCurl(clean: String): Boolean {
+    return (clean.contains("dumbbell") || clean.contains("db")) &&
+        (clean.contains("curl") || clean.contains("bicep")) &&
+        !clean.contains("leg") && !clean.contains("hamstring") && !clean.contains("wrist") &&
+        !clean.contains("hammer") && !clean.contains("concentration") &&
+        !clean.contains("cable") && !clean.contains("ez-bar") && !clean.contains("ez bar") &&
+        !clean.contains("kettlebell") && !clean.contains("band") && !clean.contains("trx") &&
+        !clean.contains("preacher") && !clean.contains("spider") && !clean.contains("reverse") &&
+        !clean.contains("zottman") && !clean.contains("drag") && !clean.contains("cheat") &&
+        !clean.contains("waiter") && !clean.contains("pinwheel") && !clean.contains("plate") &&
+        !clean.contains("incline") && !clean.contains("cross-body") && !clean.contains("cross body") &&
+        !clean.contains("21") && !clean.contains("smith")
+}
+
+private fun isCableBicepCurl(clean: String): Boolean {
+    return clean.contains("cable") &&
+        (clean.contains("curl") || clean.contains("bicep")) &&
+        !clean.contains("leg") && !clean.contains("hamstring") && !clean.contains("wrist") &&
+        !clean.contains("hammer") && !clean.contains("concentration") &&
+        !clean.contains("preacher") && !clean.contains("spider") && !clean.contains("reverse") &&
+        !clean.contains("zottman") && !clean.contains("drag") && !clean.contains("cheat") &&
+        !clean.contains("waiter") && !clean.contains("pinwheel") && !clean.contains("plate") &&
+        !clean.contains("crucifix") && !clean.contains("bayesian") && !clean.contains("hercules") &&
+        !clean.contains("behind-the-back") && !clean.contains("behind the back") &&
+        !clean.contains("high cable") && !clean.contains("lying") && !clean.contains("21")
+}
+
+private fun isDumbbellOverheadTricepExtension(clean: String): Boolean {
+    return (clean.contains("dumbbell") || clean.contains("db")) &&
+        clean.contains("overhead") &&
+        (clean.contains("extension") || clean.contains("ext")) &&
+        !clean.contains("cable") && !clean.contains("ez-bar") && !clean.contains("ez bar") &&
+        !clean.contains("kettlebell") && !clean.contains("trx") && !clean.contains("band")
+}
+
+private fun isCableTricepKickback(clean: String): Boolean {
+    return clean.contains("cable") &&
+        (clean.contains("kickback") || clean.contains("kick back") || clean.contains("kick-back")) &&
+        !clean.contains("glute") && !clean.contains("donkey") && !clean.contains("hip") &&
+        !clean.contains("dumbbell") && !clean.contains("db") && !clean.contains("band")
+}
+
+private fun isDumbbellTricepKickback(clean: String): Boolean {
+    return (clean.contains("dumbbell") || clean.contains("db") || clean.contains("dumbell")) &&
+        (clean.contains("kickback") || clean.contains("kick back") || clean.contains("kick-back")) &&
+        !clean.contains("glute") && !clean.contains("donkey") && !clean.contains("hip") &&
+        !clean.contains("cable") && !clean.contains("band")
+}
+
 private fun isNonBarbellBicepCurl(clean: String): Boolean {
     return clean.contains("leg") || clean.contains("hamstring") || clean.contains("wrist") ||
         clean.contains("dumbbell") || clean.contains("cable") || clean.contains("ez-bar") || clean.contains("ez bar") ||
@@ -1016,11 +1214,16 @@ fun findExerciseGuideOrNull(exerciseName: String): ExerciseGuideInfo? {
             ((clean.contains("fly") || clean.contains("flies")) &&
                 (clean.contains("cable") || clean.contains("chest") || clean.contains("dumbbell") || clean.contains("floor") || clean.contains("flat")))
         )
-    val isPushdownLike = clean.contains("pushdown") || clean.contains("push down") || clean.contains("push-down") || clean.contains("pressdown") || clean.contains("press down")
+    val isPushdownLike = isDumbbellOverheadTricepExtension(clean) ||
+        isCableTricepKickback(clean) ||
+        isDumbbellTricepKickback(clean) ||
+        clean.contains("pushdown") || clean.contains("push down") || clean.contains("push-down") || clean.contains("pressdown") || clean.contains("press down")
     val isBicepCurlLike = clean.contains("21s") || clean.contains("21's") ||
         (clean.contains("21") && (clean.contains("bicep") || clean.contains("curl") || clean.contains("barbell") || clean.contains("ez"))) ||
         clean.contains("concentration") ||
-        clean.contains("hammer") ||
+        (clean.contains("hammer") && !clean.contains("cable") && !clean.contains("kettlebell") && !clean.contains("band") && !clean.contains("preacher") && !clean.contains("strength") && !clean.contains("chin")) ||
+        isDumbbellBicepCurl(clean) ||
+        isCableBicepCurl(clean) ||
         ((clean.contains("curl") || clean.contains("bicep")) && !isNonBarbellBicepCurl(clean))
     val isChestPressLike = clean.contains("bench") || clean.contains("chest press") ||
         (clean.contains("flat") && clean.contains("dumbbell") && clean.contains("press")) ||
@@ -1029,7 +1232,9 @@ fun findExerciseGuideOrNull(exerciseName: String): ExerciseGuideInfo? {
     val isLegMachineLike = (clean.contains("leg") && clean.contains("extension")) ||
         (clean.contains("quad") && clean.contains("extension")) ||
         ((clean.contains("hamstring") || clean.contains("leg")) && clean.contains("curl"))
-    val explicitFallbackNeeded = !(isChestPressLike || isFlyOrCrossoverLike || isLegMachineLike || clean.contains("pec") || clean.contains("landmine") || clean.contains("shadow") || clean.contains("box") || clean.contains("jab") || clean.contains("1-2") || clean.contains("slip") || clean.contains("footwork") || clean.contains("flurry") || clean.contains("deadlift") || clean.contains("rdl") || clean.contains("squat") || clean.contains("goblet") || clean.contains("leg press") || clean.contains("lunge") || clean.contains("calf") || clean.contains("lat pull") || clean.contains("pulldown") || clean.contains("row") || clean.contains("arnold") || clean.contains("shoulder press") || clean.contains("overhead press") || clean.contains("military press") || clean.contains("ohp") || clean.contains("lateral raise") || clean.contains("side raise") || isPushdownLike || clean.contains("dip") || isBicepCurlLike || clean.contains("plank") || clean.contains("knee raise") || clean.contains("hanging") || clean.contains("leg raise") || clean.contains("bicycle") || clean.contains("crunch") || clean.contains("climber") || clean.contains("mountain") || clean.contains("pushup") || clean.contains("push up") || clean.contains("push-up") || clean.contains("pullup") || clean.contains("pull up") || clean.contains("pull-up") || clean.contains("chin"))
+    val isShoulderRaiseLike = clean.contains("lateral raise") || clean.contains("side raise") ||
+        (clean.contains("cable") && clean.contains("front raise"))
+    val explicitFallbackNeeded = !(isChestPressLike || isFlyOrCrossoverLike || isLegMachineLike || clean.contains("pec") || clean.contains("landmine") || clean.contains("shadow") || clean.contains("box") || clean.contains("jab") || clean.contains("1-2") || clean.contains("slip") || clean.contains("footwork") || clean.contains("flurry") || clean.contains("deadlift") || clean.contains("rdl") || clean.contains("squat") || clean.contains("goblet") || clean.contains("leg press") || clean.contains("lunge") || clean.contains("calf") || clean.contains("lat pull") || clean.contains("pulldown") || clean.contains("row") || clean.contains("arnold") || clean.contains("shoulder press") || clean.contains("overhead press") || clean.contains("military press") || clean.contains("ohp") || isShoulderRaiseLike || isPushdownLike || clean.contains("dip") || isBicepCurlLike || clean.contains("plank") || clean.contains("knee raise") || clean.contains("hanging") || clean.contains("leg raise") || clean.contains("bicycle") || clean.contains("crunch") || clean.contains("climber") || clean.contains("mountain") || clean.contains("pushup") || clean.contains("push up") || clean.contains("push-up") || clean.contains("pullup") || clean.contains("pull up") || clean.contains("pull-up") || clean.contains("chin"))
     if (explicitFallbackNeeded) {
         val wordMatch = ExerciseGuidesList.first().title.lowercase().split(" ").any { word -> word.length > 3 && clean.contains(word) }
         if (!wordMatch) return null

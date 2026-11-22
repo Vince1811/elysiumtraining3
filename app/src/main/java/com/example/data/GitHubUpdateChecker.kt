@@ -17,7 +17,8 @@ data class GitHubUpdateCheckResult(
     val updateLabel: String = "",
     val statusMessage: String,
     val apkDownloadUrl: String? = null,
-    val releasesPageUrl: String? = null
+    val releasesPageUrl: String? = null,
+    val latestCommitSha: String = ""
 )
 
 object GitHubUpdateChecker {
@@ -172,12 +173,16 @@ object GitHubUpdateChecker {
             var commitMsg = ""
             var commitTimeMs = 0L
             val (cCode, cBody) = githubHttpGet(
-                "https://api.github.com/repos/$repoSlug/commits/$encodedBranch?per_page=1",
+                "https://api.github.com/repos/$repoSlug/commits?sha=$encodedBranch&per_page=1",
                 token
             )
             if (cCode in 200..299 && cBody.isNotBlank()) {
-                val arr = JSONArray(cBody)
-                val first = arr.optJSONObject(0)
+                val trimmedBody = cBody.trimStart()
+                val first = when {
+                    trimmedBody.startsWith("[") -> JSONArray(trimmedBody).optJSONObject(0)
+                    trimmedBody.startsWith("{") -> JSONObject(trimmedBody)
+                    else -> null
+                }
                 if (first != null) {
                     commitSha = first.optString("sha", "").take(7)
                     val commitObj = first.optJSONObject("commit")
@@ -476,7 +481,8 @@ object GitHubUpdateChecker {
             updateLabel = label,
             statusMessage = status,
             apkDownloadUrl = apkUrl.ifBlank { null },
-            releasesPageUrl = "https://github.com/$repoSlug/releases"
+            releasesPageUrl = "https://github.com/$repoSlug/releases",
+            latestCommitSha = commitSha
         )
     }
 

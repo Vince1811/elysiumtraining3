@@ -95,6 +95,9 @@ fun SettingsScreen(
     var quadsCm by remember { mutableStateOf("") }
     var calvesCm by remember { mutableStateOf("") }
     var neckCm by remember { mutableStateOf("") }
+    var forearmsCm by remember { mutableStateOf("") }
+    var wristsCm by remember { mutableStateOf("") }
+    var anklesCm by remember { mutableStateOf("") }
     var activePreloadedMode by remember { mutableStateOf("None") }
     var themeName by remember { mutableStateOf("Purple") }
     var autoUnmute by remember { mutableStateOf(false) }
@@ -283,6 +286,15 @@ fun SettingsScreen(
         preferencesManager.bodyNeckFlow.collect { neckCm = it }
     }
     LaunchedEffect(Unit) {
+        preferencesManager.bodyForearmsFlow.collect { forearmsCm = it }
+    }
+    LaunchedEffect(Unit) {
+        preferencesManager.bodyWristsFlow.collect { wristsCm = it }
+    }
+    LaunchedEffect(Unit) {
+        preferencesManager.bodyAnklesFlow.collect { anklesCm = it }
+    }
+    LaunchedEffect(Unit) {
         preferencesManager.activePreloadedModeFlow.collect { activePreloadedMode = it }
     }
     LaunchedEffect(Unit) {
@@ -295,7 +307,6 @@ fun SettingsScreen(
         preferencesManager.exerciseFontSizeFlow.collect { exerciseFontSize = it.toFloat() }
     }
 
-    val todayEpoch = java.util.Calendar.getInstance().timeInMillis / (1000 * 60 * 60 * 24)
     val userId by preferencesManager.userIdFlow.collectAsState(initial = -1)
     
     val allPrograms by repository.getAllProgramsForUser(userId).collectAsState(initial = emptyList())
@@ -303,58 +314,41 @@ fun SettingsScreen(
     val allProfiles by repository.getAllWorkoutProfilesForUser(userId).collectAsState(initial = emptyList())
     val allMedications by repository.allMedications.collectAsState(initial = emptyList())
     val allCustomMeals by repository.allCustomMeals.collectAsState(initial = emptyList())
-    
-    val volumeHistory by remember(userId) {
-        if (userId != -1) {
-            kotlinx.coroutines.flow.combine(
-                repository.getAllProgramsForUser(userId),
-                repository.getAllSetsForUser(userId)
-            ) { programs, allSets ->
-                val last7Days = (6 downTo 0).map { offset -> todayEpoch - offset }
-                last7Days.map { epoch ->
-                    val program = programs.find { it.dateEpochDays == epoch }
-                    val setsForProg = if (program != null) allSets.filter { it.programId == program.id } else emptyList()
-                    val totalVolume = setsForProg.sumOf { set ->
-                        if (set.completedSetsJson.isNotEmpty()) {
-                            try {
-                                kotlinx.serialization.json.Json.decodeFromString<List<com.example.data.CompletedSetInfo>>(set.completedSetsJson)
-                                    .sumOf { setInfo -> setInfo.reps * setInfo.weightKg }
-                            } catch (e: Exception) {
-                                set.completedWeightKg * set.completedReps * set.completedSets.toDouble()
-                            }
-                        } else {
-                            set.completedWeightKg * set.completedReps * set.completedSets.toDouble()
-                        }
-                    }
-                    
-                    val calendar = java.util.Calendar.getInstance().apply {
-                        timeInMillis = epoch * (24 * 60 * 60 * 1000L)
-                    }
-                    val sdfStr = java.text.SimpleDateFormat("EEE", java.util.Locale.getDefault()).format(calendar.time)
-                    
-                    VolumeDataPoint(
-                        dayLabel = sdfStr,
-                        epochDay = epoch,
-                        totalVolume = totalVolume,
-                        exercisesCount = setsForProg.size
-                    )
-                }
-            }
-        } else {
-            kotlinx.coroutines.flow.flowOf(emptyList())
-        }
-    }.collectAsState(initial = emptyList())
 
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
-        Text("Personal Progression Dashboard 📊", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Text("Your workout intensity and total weight moved in the last 7 days.", color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.bodySmall)
-        Spacer(Modifier.height(8.dp))
-        VolumeProgressionLineChart(volumeHistory = volumeHistory)
-        Spacer(Modifier.height(24.dp))
-
         Text("Body Profile Settings", style = MaterialTheme.typography.titleLarge)
         Text("Required for Daily muscle protein and BMI estimations in meals module.", color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.bodySmall)
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(12.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Biological Sex:", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.width(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = userSex == "Male",
+                    onClick = {
+                        userSex = "Male"
+                        scope.launch { preferencesManager.saveUserSex("Male") }
+                    },
+                    label = { Text("Male") },
+                    modifier = Modifier.testTag("biological_sex_male_chip")
+                )
+                FilterChip(
+                    selected = userSex == "Female",
+                    onClick = {
+                        userSex = "Female"
+                        scope.launch { preferencesManager.saveUserSex("Female") }
+                    },
+                    label = { Text("Female") },
+                    modifier = Modifier.testTag("biological_sex_female_chip")
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -482,7 +476,10 @@ fun SettingsScreen(
                                     middle = middleCm,
                                     quads = quadsCm,
                                     calves = calvesCm,
-                                    neck = neckCm
+                                    neck = neckCm,
+                                    forearms = forearmsCm,
+                                    wrists = wristsCm,
+                                    ankles = anklesCm
                                 )
                                 com.example.data.CloudflareSyncService.appSyncScope.launch {
                                     val syncService = com.example.data.CloudflareSyncService(context.applicationContext)
@@ -533,7 +530,7 @@ fun SettingsScreen(
                         onValueChange = {
                             bicepCm = it
                             scope.launch {
-                                preferencesManager.saveBodyMeasurements(it, chestCm, middleCm, quadsCm, calvesCm, neckCm)
+                                preferencesManager.saveBodyMeasurements(it, chestCm, middleCm, quadsCm, calvesCm, neckCm, forearmsCm, wristsCm, anklesCm)
                             }
                         },
                         label = { Text("Bicep (cm)") },
@@ -549,7 +546,7 @@ fun SettingsScreen(
                         onValueChange = {
                             chestCm = it
                             scope.launch {
-                                preferencesManager.saveBodyMeasurements(bicepCm, it, middleCm, quadsCm, calvesCm, neckCm)
+                                preferencesManager.saveBodyMeasurements(bicepCm, it, middleCm, quadsCm, calvesCm, neckCm, forearmsCm, wristsCm, anklesCm)
                             }
                         },
                         label = { Text("Chest (cm)") },
@@ -573,7 +570,7 @@ fun SettingsScreen(
                         onValueChange = {
                             middleCm = it
                             scope.launch {
-                                preferencesManager.saveBodyMeasurements(bicepCm, chestCm, it, quadsCm, calvesCm, neckCm)
+                                preferencesManager.saveBodyMeasurements(bicepCm, chestCm, it, quadsCm, calvesCm, neckCm, forearmsCm, wristsCm, anklesCm)
                             }
                         },
                         label = { Text("Middle / Waist (cm)") },
@@ -589,7 +586,7 @@ fun SettingsScreen(
                         onValueChange = {
                             quadsCm = it
                             scope.launch {
-                                preferencesManager.saveBodyMeasurements(bicepCm, chestCm, middleCm, it, calvesCm, neckCm)
+                                preferencesManager.saveBodyMeasurements(bicepCm, chestCm, middleCm, it, calvesCm, neckCm, forearmsCm, wristsCm, anklesCm)
                             }
                         },
                         label = { Text("Quads (cm)") },
@@ -613,7 +610,7 @@ fun SettingsScreen(
                         onValueChange = {
                             calvesCm = it
                             scope.launch {
-                                preferencesManager.saveBodyMeasurements(bicepCm, chestCm, middleCm, quadsCm, it, neckCm)
+                                preferencesManager.saveBodyMeasurements(bicepCm, chestCm, middleCm, quadsCm, it, neckCm, forearmsCm, wristsCm, anklesCm)
                             }
                         },
                         label = { Text("Calves (cm)") },
@@ -629,7 +626,7 @@ fun SettingsScreen(
                         onValueChange = {
                             neckCm = it
                             scope.launch {
-                                preferencesManager.saveBodyMeasurements(bicepCm, chestCm, middleCm, quadsCm, calvesCm, it)
+                                preferencesManager.saveBodyMeasurements(bicepCm, chestCm, middleCm, quadsCm, calvesCm, it, forearmsCm, wristsCm, anklesCm)
                             }
                         },
                         label = { Text("Neck (cm)") },
@@ -640,6 +637,77 @@ fun SettingsScreen(
                         ),
                         singleLine = true
                     )
+                }
+
+                Spacer(Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedTextField(
+                        value = forearmsCm,
+                        onValueChange = {
+                            forearmsCm = it
+                            scope.launch {
+                                preferencesManager.saveBodyMeasurements(bicepCm, chestCm, middleCm, quadsCm, calvesCm, neckCm, it, wristsCm, anklesCm)
+                            }
+                        },
+                        label = { Text("Forearms (cm)") },
+                        placeholder = { Text("e.g. 31") },
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("measurement_forearms_input"),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                        ),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = wristsCm,
+                        onValueChange = {
+                            wristsCm = it
+                            scope.launch {
+                                preferencesManager.saveBodyMeasurements(bicepCm, chestCm, middleCm, quadsCm, calvesCm, neckCm, forearmsCm, it, anklesCm)
+                            }
+                        },
+                        label = { Text("Wrists (cm)") },
+                        placeholder = { Text("e.g. 17") },
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("measurement_wrists_input"),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                        ),
+                        singleLine = true
+                    )
+                }
+
+                Spacer(Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedTextField(
+                        value = anklesCm,
+                        onValueChange = {
+                            anklesCm = it
+                            scope.launch {
+                                preferencesManager.saveBodyMeasurements(bicepCm, chestCm, middleCm, quadsCm, calvesCm, neckCm, forearmsCm, wristsCm, it)
+                            }
+                        },
+                        label = { Text("Ankles (cm)") },
+                        placeholder = { Text("e.g. 22") },
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("measurement_ankles_input"),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                        ),
+                        singleLine = true
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
                 }
 
                 Spacer(Modifier.height(14.dp))
@@ -665,7 +733,10 @@ fun SettingsScreen(
                                 middle = middleCm,
                                 quads = quadsCm,
                                 calves = calvesCm,
-                                neck = neckCm
+                                neck = neckCm,
+                                forearms = forearmsCm,
+                                wrists = wristsCm,
+                                ankles = anklesCm
                             )
                             com.example.data.CloudflareSyncService.appSyncScope.launch {
                                 val syncService = com.example.data.CloudflareSyncService(context.applicationContext)
@@ -1127,34 +1198,6 @@ fun SettingsScreen(
 
         Spacer(Modifier.height(16.dp))
 
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("Biological Sex:", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.width(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                FilterChip(
-                    selected = userSex == "Male",
-                    onClick = {
-                        userSex = "Male"
-                        scope.launch { preferencesManager.saveUserSex("Male") }
-                    },
-                    label = { Text("Male") }
-                )
-                FilterChip(
-                    selected = userSex == "Female",
-                    onClick = {
-                        userSex = "Female"
-                        scope.launch { preferencesManager.saveUserSex("Female") }
-                    },
-                    label = { Text("Female") }
-                )
-            }
-        }
-
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
@@ -1608,29 +1651,6 @@ fun SettingsScreen(
             }
         }
 
-        Spacer(Modifier.height(12.dp))
-
-        Button(
-            onClick = {
-                try {
-                    val intent = context.packageManager.getLaunchIntentForPackage("com.spotify.music")
-                    if (intent != null) {
-                        context.startActivity(intent)
-                    } else {
-                        val webpage = Uri.parse("https://open.spotify.com")
-                        val intent = Intent(Intent.ACTION_VIEW, webpage)
-                        context.startActivity(intent)
-                    }
-                } catch (e: Exception) {
-                    // fallback
-                }
-            },
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
-        ) {
-            Text("Open Spotify")
-        }
-
         Spacer(Modifier.height(32.dp))
         Text("Workout Profiles & Routine Mode (Settings Dept)", style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(8.dp))
@@ -1731,17 +1751,6 @@ fun SettingsScreen(
         }
 
         Spacer(Modifier.height(32.dp))
-        Text("Device Integrations", style = MaterialTheme.typography.headlineMedium)
-        Spacer(Modifier.height(16.dp))
-        
-        Button(onClick = {
-            val intent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
-            context.startActivity(intent)
-        }, modifier = Modifier.fillMaxWidth()) {
-            Text("Connect Bluetooth Earphones")
-        }
-        
-        Spacer(Modifier.height(32.dp))
         Text("Cloudflare D1 Cloud Sync", style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(12.dp))
 
@@ -1768,7 +1777,10 @@ fun SettingsScreen(
                     middle = middleCm,
                     quads = quadsCm,
                     calves = calvesCm,
-                    neck = neckCm
+                    neck = neckCm,
+                    forearms = forearmsCm,
+                    wrists = wristsCm,
+                    ankles = anklesCm
                 )
                 com.example.data.CloudflareSyncService.appSyncScope.launch {
                     val syncService = com.example.data.CloudflareSyncService(context.applicationContext)
@@ -1923,7 +1935,7 @@ fun SettingsScreen(
                             cloudflareStatusMsg = "Syncing all data to Cloudflare D1..."
                             try {
                                 val syncService = com.example.data.CloudflareSyncService(context)
-                                val success = syncService.syncAllUserDataToD1(userId, repository, preferencesManager)
+                                val success = syncService.syncAllUserDataToD1(userId, repository, preferencesManager, forceFullSync = false)
                                 if (success) {
                                     cloudflareStatusMsg = "Uploaded ${allPrograms.size} days, ${allSets.size} exercises, ${allProfiles.size} profiles to Cloudflare D1 ✓"
                                     android.widget.Toast.makeText(context, "Successfully recorded all app and exercise data to Cloudflare D1! ☁️", android.widget.Toast.LENGTH_LONG).show()
@@ -2555,7 +2567,12 @@ fun SettingsScreen(
             initial = com.example.data.PreferencesManager.DEFAULT_GITHUB_UPDATE_URL
         )
         val savedGithubToken by preferencesManager.githubUpdateTokenFlow.collectAsState(initial = "")
+        val savedSpecifiedApkUrl by preferencesManager.specifiedApkUrlFlow.collectAsState(initial = "")
+        val updateNotificationsEnabled by preferencesManager.updateNotificationsEnabledFlow.collectAsState(initial = true)
         val isUpdateAvailableSaved by preferencesManager.updateAvailableFlow.collectAsState(initial = false)
+        val savedUpdateLabel by preferencesManager.updateAvailableLabelFlow.collectAsState(initial = "")
+        val savedUpdateMessage by preferencesManager.updateAvailableMessageFlow.collectAsState(initial = "")
+        val savedUpdateUrl by preferencesManager.updateAvailableUrlFlow.collectAsState(initial = "")
         val dismissedUpdateLabelSaved by preferencesManager.dismissedUpdateLabelFlow.collectAsState(initial = "")
         val currentUserIdForSync by preferencesManager.userIdFlow.collectAsState(initial = -1)
         var isCheckingUpdate by remember { mutableStateOf(false) }
@@ -2570,17 +2587,53 @@ fun SettingsScreen(
         var updateResultReleasesUrl by remember { mutableStateOf<String?>(null) }
 
         var updateSourceInput by remember { mutableStateOf("") }
+        var specifiedApkUrlInput by remember { mutableStateOf("") }
         var githubTokenInput by remember { mutableStateOf("") }
         var showGithubToken by remember { mutableStateOf(false) }
+
+        val installedPkgInfo = remember(context) {
+            try {
+                context.packageManager.getPackageInfo(context.packageName, 0)
+            } catch (_: Exception) {
+                null
+            }
+        }
+        val installedVersionName = installedPkgInfo?.versionName ?: "1.0"
+        val installedVersionCode = remember(installedPkgInfo) {
+            if (installedPkgInfo != null) {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                    installedPkgInfo.longVersionCode
+                } else {
+                    @Suppress("DEPRECATION")
+                    installedPkgInfo.versionCode.toLong()
+                }
+            } else 1L
+        }
 
         LaunchedEffect(savedUpdateSource) {
             if (updateSourceInput.isBlank() && savedUpdateSource.isNotBlank()) {
                 updateSourceInput = savedUpdateSource
             }
         }
+        LaunchedEffect(savedSpecifiedApkUrl) {
+            if (specifiedApkUrlInput.isBlank() && savedSpecifiedApkUrl.isNotBlank()) {
+                specifiedApkUrlInput = savedSpecifiedApkUrl
+            }
+        }
         LaunchedEffect(savedGithubToken) {
             if (githubTokenInput.isBlank() && savedGithubToken.isNotBlank()) {
                 githubTokenInput = savedGithubToken
+            }
+        }
+
+        val launchApkOrReleasesDownload: (String) -> Unit = { targetUrl ->
+            val opened = com.example.receivers.AppUpdateNotifier.openExternalUpdateUrl(context, targetUrl)
+            if (!opened) {
+                android.widget.Toast.makeText(
+                    context,
+                    "Could not open update URL: $targetUrl",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
             }
         }
 
@@ -2611,16 +2664,9 @@ fun SettingsScreen(
                         }
                     }
 
-                    val res = com.example.data.GitHubUpdateChecker.checkGitHubFilesForUpdate(
+                    val res = com.example.receivers.AppUpdateNotifier.checkAndNotifyIfUpdated(
                         context = context.applicationContext,
-                        rawSource = repoSource,
-                        token = repoToken
-                    )
-                    preferencesManager.saveUpdateStatus(
-                        available = res.isUpdateAvailable,
-                        label = res.updateLabel,
-                        message = res.statusMessage,
-                        url = res.apkDownloadUrl.orEmpty()
+                        preferencesManager = preferencesManager
                     )
                     isCheckingUpdate = false
                     updateResultAvailable = res.isUpdateAvailable
@@ -2631,11 +2677,11 @@ fun SettingsScreen(
                         "App Version Check"
                     }
                     updateResultMessage = if (res.isUpdateAvailable) {
-                        "${res.statusMessage}\n\nA newer version is available. Would you like to update now?"
+                        "${res.statusMessage}\n\nA newer version is available. Tap Update Now to open the specified APK download in your browser/installer."
                     } else {
                         res.statusMessage
                     }
-                    updateResultApkUrl = res.apkDownloadUrl
+                    updateResultApkUrl = savedSpecifiedApkUrl.trim().ifBlank { res.apkDownloadUrl }
                     updateResultReleasesUrl = res.releasesPageUrl
                     val alreadyDismissed = isAutoCheck &&
                         res.updateLabel.isNotBlank() &&
@@ -2656,6 +2702,17 @@ fun SettingsScreen(
             }
         }
 
+        val resolvedApkTargetUrl = savedSpecifiedApkUrl.trim()
+            .ifBlank { updateResultApkUrl?.trim().orEmpty() }
+            .ifBlank { savedUpdateUrl.trim() }
+        val parsedSlug = com.example.data.GitHubUpdateChecker.parseGitHubRepoSlug(savedUpdateSource)
+        val fallbackReleasesUrl = updateResultReleasesUrl?.takeIf { it.isNotBlank() }
+            ?: parsedSlug?.let { "https://github.com/$it/releases/latest" }
+            ?: ""
+        val effectiveDirectUpdateUrl = resolvedApkTargetUrl.ifBlank {
+            if (isUpdateAvailableSaved) fallbackReleasesUrl else ""
+        }
+
         Text("App Version & Updates 🔄", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
         Card(
@@ -2664,35 +2721,157 @@ fun SettingsScreen(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Button(
-                    onClick = {
-                        val effectiveSource = savedUpdateSource.trim()
-                            .ifBlank { com.example.data.PreferencesManager.DEFAULT_GITHUB_UPDATE_URL }
-                        runGitHubUpdateCheck(effectiveSource, savedGithubToken.trim(), false)
-                    },
-                    enabled = !isCheckingUpdate,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 48.dp)
-                        .testTag("check_app_update_button"),
-                    shape = RoundedCornerShape(10.dp)
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (isCheckingUpdate) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onPrimary
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Installed: v$installedVersionName (build $installedVersionCode)",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
                         )
-                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = if (isUpdateAvailableSaved && savedUpdateLabel.isNotBlank()) {
+                                "Update ready on GitHub: $savedUpdateLabel"
+                            } else {
+                                "Repo: ${parsedSlug ?: savedUpdateSource}"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (isUpdateAvailableSaved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
-                    Text(
-                        when {
-                            isCheckingUpdate -> "Checking GitHub Files..."
-                            isUpdateAvailableSaved -> "Update Available"
-                            else -> "Update"
+                    if (isUpdateAvailableSaved) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer
+                        ) {
+                            Text(
+                                text = "NEW",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
                         }
+                    }
+                }
+
+                if (savedUpdateMessage.isNotBlank()) {
+                    Text(
+                        text = savedUpdateMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+                if (savedSpecifiedApkUrl.isNotBlank()) {
+                    Text(
+                        text = "Specified APK: $savedSpecifiedApkUrl",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Status Bar Update Notifications",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "Show a notch/status-bar alert when GitHub files change",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = updateNotificationsEnabled,
+                        onCheckedChange = { enabled ->
+                            if (enabled && android.os.Build.VERSION.SDK_INT >= 33 &&
+                                !com.example.receivers.AppUpdateNotifier.hasNotificationPermission(context)
+                            ) {
+                                postNotificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                            }
+                            scope.launch {
+                                preferencesManager.saveUpdateNotificationsEnabled(enabled)
+                                if (enabled) {
+                                    NotificationScheduler.scheduleAppUpdateCheck(context.applicationContext)
+                                } else {
+                                    NotificationScheduler.cancelAppUpdateCheck(context.applicationContext)
+                                }
+                            }
+                        },
+                        modifier = Modifier.testTag("toggle_update_notifications")
+                    )
+                }
+
+                if (effectiveDirectUpdateUrl.isNotBlank()) {
+                    Button(
+                        onClick = { launchApkOrReleasesDownload(effectiveDirectUpdateUrl) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .testTag("download_specified_apk_button"),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text(
+                            if (resolvedApkTargetUrl.isNotBlank()) "Update (Download Specified APK)"
+                            else "Update via GitHub Releases"
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilledTonalButton(
+                        onClick = {
+                            val effectiveSource = savedUpdateSource.trim()
+                                .ifBlank { com.example.data.PreferencesManager.DEFAULT_GITHUB_UPDATE_URL }
+                            runGitHubUpdateCheck(effectiveSource, savedGithubToken.trim(), false)
+                        },
+                        enabled = !isCheckingUpdate,
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp)
+                            .testTag("check_app_update_button"),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        if (isCheckingUpdate) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(Modifier.width(6.dp))
+                        }
+                        Text(if (isCheckingUpdate) "Checking..." else "Check GitHub")
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            updateSourceInput = savedUpdateSource
+                            specifiedApkUrlInput = savedSpecifiedApkUrl
+                            githubTokenInput = savedGithubToken
+                            showUpdateRepoDialog = true
+                        },
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("configure_update_repo_button"),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("Repo / APK")
+                    }
                 }
             }
         }
@@ -2700,22 +2879,32 @@ fun SettingsScreen(
         if (showUpdateRepoDialog) {
             AlertDialog(
                 onDismissRequest = { showUpdateRepoDialog = false },
-                title = { Text("GitHub Repository") },
+                title = { Text("GitHub Repo & APK Source") },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(
-                            text = "Enter the GitHub repository (owner/repo or URL) to check its files for app updates.",
+                            text = "Set the GitHub repository to watch for changed files, and optionally specify an exact APK download URL.",
                             style = MaterialTheme.typography.bodySmall
                         )
                         OutlinedTextField(
                             value = updateSourceInput,
                             onValueChange = { updateSourceInput = it },
                             label = { Text("GitHub Repo (owner/repo) or URL") },
-                            placeholder = { Text("e.g. myname/elysium-training") },
+                            placeholder = { Text("e.g. Vince1811/elysiumtraining3") },
                             singleLine = true,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("github_update_repo_input")
+                        )
+                        OutlinedTextField(
+                            value = specifiedApkUrlInput,
+                            onValueChange = { specifiedApkUrlInput = it },
+                            label = { Text("Specified APK URL (optional)") },
+                            placeholder = { Text("https://github.com/owner/repo/releases/latest/download/app-debug.apk") },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("specified_apk_url_input")
                         )
                         OutlinedTextField(
                             value = githubTokenInput,
@@ -2742,9 +2931,11 @@ fun SettingsScreen(
                     Button(
                         onClick = {
                             val repoTrimmed = updateSourceInput.trim()
+                            val apkTrimmed = specifiedApkUrlInput.trim()
                             val tokenTrimmed = githubTokenInput.trim()
                             scope.launch {
                                 preferencesManager.saveAppUpdateSource(repoTrimmed)
+                                preferencesManager.saveSpecifiedApkUrl(apkTrimmed)
                                 preferencesManager.saveGithubUpdateToken(tokenTrimmed)
                                 showUpdateRepoDialog = false
                                 if (repoTrimmed.isNotBlank()) {
@@ -2753,7 +2944,7 @@ fun SettingsScreen(
                             }
                         }
                     ) {
-                        Text("Check Updates")
+                        Text("Save & Check")
                     }
                 },
                 dismissButton = {
@@ -2765,8 +2956,10 @@ fun SettingsScreen(
         }
 
         if (showUpdateResultDialog) {
-            val targetInstallUrl = updateResultApkUrl?.takeIf { it.isNotBlank() }
-                ?: if (updateResultAvailable) updateResultReleasesUrl?.takeIf { it.isNotBlank() } else null
+            val targetInstallUrl = savedSpecifiedApkUrl.trim().ifBlank {
+                updateResultApkUrl?.takeIf { it.isNotBlank() }
+                    ?: if (updateResultAvailable) updateResultReleasesUrl?.takeIf { it.isNotBlank() } else null
+            }
             AlertDialog(
                 onDismissRequest = { showUpdateResultDialog = false },
                 title = { Text(updateResultTitle) },
@@ -2777,27 +2970,17 @@ fun SettingsScreen(
                     )
                 },
                 confirmButton = {
-                    if (targetInstallUrl != null) {
+                    if (!targetInstallUrl.isNullOrBlank()) {
                         Button(
                             onClick = {
                                 showUpdateResultDialog = false
-                                try {
-                                    context.startActivity(
-                                        Intent(Intent.ACTION_VIEW, Uri.parse(targetInstallUrl))
-                                    )
-                                } catch (e: Exception) {
-                                    android.widget.Toast.makeText(
-                                        context,
-                                        "Could not open update package: ${e.localizedMessage}",
-                                        android.widget.Toast.LENGTH_SHORT
-                                    ).show()
-                                }
+                                launchApkOrReleasesDownload(targetInstallUrl)
                             },
                             modifier = Modifier
                                 .heightIn(min = 48.dp)
                                 .testTag("open_app_update_download_button")
                         ) {
-                            Text(if (!updateResultApkUrl.isNullOrBlank()) "Update Now" else "View Releases")
+                            Text(if (!updateResultApkUrl.isNullOrBlank() || savedSpecifiedApkUrl.isNotBlank()) "Update Now" else "View Releases")
                         }
                     } else {
                         Button(
@@ -2814,6 +2997,7 @@ fun SettingsScreen(
                             onClick = {
                                 showUpdateResultDialog = false
                                 updateSourceInput = savedUpdateSource
+                                specifiedApkUrlInput = savedSpecifiedApkUrl
                                 githubTokenInput = savedGithubToken
                                 showUpdateRepoDialog = true
                             },

@@ -41,6 +41,9 @@ class PreferencesManager(private val context: Context) {
         val BODY_QUADS = stringPreferencesKey("body_quads_cm")
         val BODY_CALVES = stringPreferencesKey("body_calves_cm")
         val BODY_NECK = stringPreferencesKey("body_neck_cm")
+        val BODY_FOREARMS = stringPreferencesKey("body_forearms_cm")
+        val BODY_WRISTS = stringPreferencesKey("body_wrists_cm")
+        val BODY_ANKLES = stringPreferencesKey("body_ankles_cm")
         val USER_BMI = stringPreferencesKey("user_bmi")
         val ACTIVE_PRELOADED_MODE = stringPreferencesKey("active_preloaded_mode")
         val LINKED_PLATFORM_URL = stringPreferencesKey("linked_platform_url")
@@ -65,6 +68,9 @@ class PreferencesManager(private val context: Context) {
         val UPDATE_AVAILABLE_MESSAGE = stringPreferencesKey("update_available_message")
         val UPDATE_AVAILABLE_URL = stringPreferencesKey("update_available_url")
         val DISMISSED_UPDATE_LABEL = stringPreferencesKey("dismissed_update_label")
+        val SPECIFIED_APK_URL = stringPreferencesKey("specified_apk_url")
+        val UPDATE_NOTIFICATIONS_ENABLED = androidx.datastore.preferences.core.booleanPreferencesKey("update_notifications_enabled")
+        val LAST_NOTIFIED_UPDATE_KEY = stringPreferencesKey("last_notified_update_key")
     }
 
     val medicationRemindersEnabledFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
@@ -173,6 +179,9 @@ class PreferencesManager(private val context: Context) {
     val bodyQuadsFlow: Flow<String> = context.dataStore.data.map { it[BODY_QUADS] ?: "" }
     val bodyCalvesFlow: Flow<String> = context.dataStore.data.map { it[BODY_CALVES] ?: "" }
     val bodyNeckFlow: Flow<String> = context.dataStore.data.map { it[BODY_NECK] ?: "" }
+    val bodyForearmsFlow: Flow<String> = context.dataStore.data.map { it[BODY_FOREARMS] ?: "" }
+    val bodyWristsFlow: Flow<String> = context.dataStore.data.map { it[BODY_WRISTS] ?: "" }
+    val bodyAnklesFlow: Flow<String> = context.dataStore.data.map { it[BODY_ANKLES] ?: "" }
 
     val linkedPlatformUrlFlow: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[LINKED_PLATFORM_URL] ?: ""
@@ -236,7 +245,10 @@ class PreferencesManager(private val context: Context) {
         middle: String,
         quads: String,
         calves: String,
-        neck: String
+        neck: String,
+        forearms: String = "",
+        wrists: String = "",
+        ankles: String = ""
     ) {
         context.dataStore.edit {
             it[USER_WEIGHT] = weight
@@ -251,11 +263,24 @@ class PreferencesManager(private val context: Context) {
             it[BODY_QUADS] = quads
             it[BODY_CALVES] = calves
             it[BODY_NECK] = neck
+            it[BODY_FOREARMS] = forearms
+            it[BODY_WRISTS] = wrists
+            it[BODY_ANKLES] = ankles
             it[PENDING_D1_UPLOAD] = true
         }
     }
 
-    suspend fun saveBodyMeasurements(bicep: String, chest: String, middle: String, quads: String, calves: String, neck: String) {
+    suspend fun saveBodyMeasurements(
+        bicep: String,
+        chest: String,
+        middle: String,
+        quads: String,
+        calves: String,
+        neck: String,
+        forearms: String = "",
+        wrists: String = "",
+        ankles: String = ""
+    ) {
         context.dataStore.edit {
             it[BODY_BICEP] = bicep
             it[BODY_CHEST] = chest
@@ -263,6 +288,9 @@ class PreferencesManager(private val context: Context) {
             it[BODY_QUADS] = quads
             it[BODY_CALVES] = calves
             it[BODY_NECK] = neck
+            it[BODY_FOREARMS] = forearms
+            it[BODY_WRISTS] = wrists
+            it[BODY_ANKLES] = ankles
             it[PENDING_D1_UPLOAD] = true
         }
     }
@@ -315,6 +343,18 @@ class PreferencesManager(private val context: Context) {
         preferences[DISMISSED_UPDATE_LABEL] ?: ""
     }
 
+    val specifiedApkUrlFlow: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[SPECIFIED_APK_URL] ?: ""
+    }
+
+    val updateNotificationsEnabledFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[UPDATE_NOTIFICATIONS_ENABLED] ?: true
+    }
+
+    val lastNotifiedUpdateKeyFlow: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[LAST_NOTIFIED_UPDATE_KEY] ?: ""
+    }
+
     suspend fun saveUpdateStatus(available: Boolean, label: String, message: String, url: String) {
         context.dataStore.edit {
             it[UPDATE_AVAILABLE_FLAG] = available
@@ -327,6 +367,24 @@ class PreferencesManager(private val context: Context) {
     suspend fun dismissUpdateNotification(label: String) {
         context.dataStore.edit {
             it[DISMISSED_UPDATE_LABEL] = label
+        }
+    }
+
+    suspend fun saveSpecifiedApkUrl(url: String) {
+        context.dataStore.edit {
+            it[SPECIFIED_APK_URL] = url.trim()
+        }
+    }
+
+    suspend fun saveUpdateNotificationsEnabled(enabled: Boolean) {
+        context.dataStore.edit {
+            it[UPDATE_NOTIFICATIONS_ENABLED] = enabled
+        }
+    }
+
+    suspend fun saveLastNotifiedUpdateKey(key: String) {
+        context.dataStore.edit {
+            it[LAST_NOTIFIED_UPDATE_KEY] = key
         }
     }
 
@@ -417,6 +475,22 @@ class PreferencesManager(private val context: Context) {
     suspend fun saveProfilePicturePath(userId: Int, path: String) {
         if (userId == -1) return
         context.dataStore.edit { it[stringPreferencesKey("profile_picture_path_$userId")] = path }
+    }
+
+    fun progressPhotoOrderFlow(userId: Int): Flow<List<String>> = context.dataStore.data.map { preferences ->
+        if (userId == -1) {
+            emptyList()
+        } else {
+            val raw = preferences[stringPreferencesKey("progress_photo_order_$userId")].orEmpty()
+            if (raw.isBlank()) emptyList() else raw.split("|").filter { it.isNotBlank() }
+        }
+    }
+
+    suspend fun saveProgressPhotoOrder(userId: Int, orderedTokens: List<String>) {
+        if (userId == -1) return
+        context.dataStore.edit {
+            it[stringPreferencesKey("progress_photo_order_$userId")] = orderedTokens.joinToString("|")
+        }
     }
     
     suspend fun logout() {
@@ -541,5 +615,70 @@ class PreferencesManager(private val context: Context) {
 
     suspend fun saveLastBiometricUserId(userId: Int) {
         context.dataStore.edit { it[LAST_BIOMETRIC_USER_ID] = userId }
+    }
+
+    private fun d1ScopeSuffix(userId: Int, databaseId: String): String {
+        val dbKey = databaseId.trim().lowercase().replace(Regex("[^a-z0-9]"), "_").take(24)
+        return "${userId}_$dbKey"
+    }
+
+    suspend fun getD1LastSnapshotHash(userId: Int, databaseId: String): String {
+        val key = stringPreferencesKey("d1_snapshot_hash_${d1ScopeSuffix(userId, databaseId)}")
+        return context.dataStore.data.map { it[key] ?: "" }.first()
+    }
+
+    suspend fun saveD1LastSnapshotHash(userId: Int, databaseId: String, hash: String) {
+        val key = stringPreferencesKey("d1_snapshot_hash_${d1ScopeSuffix(userId, databaseId)}")
+        context.dataStore.edit { it[key] = hash }
+    }
+
+    suspend fun getD1LastLogsPullTs(userId: Int, databaseId: String): Long {
+        val key = androidx.datastore.preferences.core.longPreferencesKey("d1_logs_pull_ts_${d1ScopeSuffix(userId, databaseId)}")
+        return context.dataStore.data.map { it[key] ?: 0L }.first()
+    }
+
+    suspend fun saveD1LastLogsPullTs(userId: Int, databaseId: String, ts: Long) {
+        val key = androidx.datastore.preferences.core.longPreferencesKey("d1_logs_pull_ts_${d1ScopeSuffix(userId, databaseId)}")
+        context.dataStore.edit { it[key] = ts }
+    }
+
+    suspend fun getD1SyncedSetHashesJson(userId: Int, databaseId: String): String {
+        val key = stringPreferencesKey("d1_synced_set_hashes_${d1ScopeSuffix(userId, databaseId)}")
+        return context.dataStore.data.map { it[key] ?: "" }.first()
+    }
+
+    suspend fun saveD1SyncedSetHashesJson(userId: Int, databaseId: String, json: String) {
+        val key = stringPreferencesKey("d1_synced_set_hashes_${d1ScopeSuffix(userId, databaseId)}")
+        context.dataStore.edit { it[key] = json }
+    }
+
+    suspend fun getD1SyncedProfileHashesJson(databaseId: String): String {
+        val key = stringPreferencesKey("d1_synced_profile_hashes_${d1ScopeSuffix(0, databaseId)}")
+        return context.dataStore.data.map { it[key] ?: "" }.first()
+    }
+
+    suspend fun saveD1SyncedProfileHashesJson(databaseId: String, json: String) {
+        val key = stringPreferencesKey("d1_synced_profile_hashes_${d1ScopeSuffix(0, databaseId)}")
+        context.dataStore.edit { it[key] = json }
+    }
+
+    suspend fun getD1SyncedRowHashesJson(userId: Int, databaseId: String): String {
+        val key = stringPreferencesKey("d1_synced_row_hashes_${d1ScopeSuffix(userId, databaseId)}")
+        return context.dataStore.data.map { it[key] ?: "" }.first()
+    }
+
+    suspend fun saveD1SyncedRowHashesJson(userId: Int, databaseId: String, json: String) {
+        val key = stringPreferencesKey("d1_synced_row_hashes_${d1ScopeSuffix(userId, databaseId)}")
+        context.dataStore.edit { it[key] = json }
+    }
+
+    suspend fun getD1SchemaVersion(databaseId: String): Int {
+        val key = androidx.datastore.preferences.core.intPreferencesKey("d1_schema_ver_${d1ScopeSuffix(0, databaseId)}")
+        return context.dataStore.data.map { it[key] ?: 0 }.first()
+    }
+
+    suspend fun saveD1SchemaVersion(databaseId: String, version: Int) {
+        val key = androidx.datastore.preferences.core.intPreferencesKey("d1_schema_ver_${d1ScopeSuffix(0, databaseId)}")
+        context.dataStore.edit { it[key] = version }
     }
 }

@@ -12,10 +12,16 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
+import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
+import androidx.compose.foundation.lazy.staggeredgrid.items
+import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -23,16 +29,31 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
+import kotlin.math.roundToInt
 import com.example.BuildConfig
 import com.example.api.Content
 import com.example.api.GenerateContentRequest
@@ -274,7 +295,52 @@ private fun hasConfiguredGeminiKey(): Boolean {
     return key.isNotEmpty() && key != "GEMINI_API_KEY" && key != "MY_GEMINI_API_KEY"
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+private fun photoOrderToken(photo: ProgressPhoto): String = "${photo.id}_${photo.timestamp}"
+
+private fun fallbackCollageRatio(photoId: Int): Float = when (photoId % 4) {
+    0 -> 0.78f
+    1 -> 1.0f
+    2 -> 0.85f
+    else -> 1.15f
+}
+
+private suspend fun resolveCollageAspectRatio(photoPath: String, photoId: Int): Float = withContext(Dispatchers.IO) {
+    val fallback = fallbackCollageRatio(photoId)
+    if (photoPath.isBlank()) return@withContext fallback
+    try {
+        val file = File(photoPath)
+        if (!file.exists() || file.length() == 0L) return@withContext fallback
+        val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, opts)
+        val w = opts.outWidth
+        val h = opts.outHeight
+        if (w > 0 && h > 0) {
+            var rawRatio = w.toFloat() / h.toFloat()
+            // Account for EXIF orientation 90/270 degree rotation
+            try {
+                val orientation = ExifInterface(file.absolutePath).getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_NORMAL
+                )
+                if (orientation == ExifInterface.ORIENTATION_ROTATE_90 ||
+                    orientation == ExifInterface.ORIENTATION_ROTATE_270 ||
+                    orientation == ExifInterface.ORIENTATION_TRANSPOSE ||
+                    orientation == ExifInterface.ORIENTATION_TRANSVERSE
+                ) {
+                    rawRatio = h.toFloat() / w.toFloat()
+                }
+            } catch (_: Exception) {
+            }
+            rawRatio.coerceIn(0.68f, 1.32f)
+        } else {
+            fallback
+        }
+    } catch (_: Exception) {
+        fallback
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ProgressTimelineScreen(
     repository: WorkoutRepository,
@@ -282,16 +348,20 @@ fun ProgressTimelineScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
+    val density = LocalDensity.current
     val preferences = remember { PreferencesManager(context) }
     val r2Service = remember { CloudflareR2Service(context) }
 
     val photos by repository.getProgressPhotosForUser(userId).collectAsState(initial = emptyList())
+    val savedOrderTokens by preferences.progressPhotoOrderFlow(userId).collectAsState(initial = emptyList())
 
     var captionInput by remember { mutableStateOf("") }
     var pendingCameraPath by remember { mutableStateOf<String?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
     var tempCapturedUriPath by remember { mutableStateOf<String?>(null) }
     var tempExtractedMetadata by remember { mutableStateOf<ExtractedPhotoMetadata?>(null) }
+    var selectedPhotoForPreview by remember { mutableStateOf<ProgressPhoto?>(null) }
 
     // State for tracking which photo is actively being analyzed by AI or uploaded to R2
     var analyzingPhotoId by remember { mutableStateOf<Int?>(null) }
@@ -570,7 +640,7 @@ fun ProgressTimelineScreen(
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        text = "Upload or snap your first photo to extract its date & photo data, back it up to Cloudflare R2, and get AI physique feedback!",
+                        text = "Upload or snap photos to build your progress collage. Press and hold any photo to drag and rearrange it.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
@@ -578,421 +648,348 @@ fun ProgressTimelineScreen(
                 }
             }
         } else {
-            LazyColumn(
+            val orderedPhotos = remember { mutableStateListOf<ProgressPhoto>() }
+            var draggedPhoto by remember { mutableStateOf<ProgressPhoto?>(null) }
+            var draggedAspectRatio by remember { mutableFloatStateOf(0.85f) }
+            var draggedSizePx by remember { mutableStateOf(IntSize.Zero) }
+            var draggedTopLeftRoot by remember { mutableStateOf(Offset.Zero) }
+            var draggedFingerRoot by remember { mutableStateOf(Offset.Zero) }
+            var lastSwapTimeMs by remember { mutableLongStateOf(0L) }
+            var gridContainerTopLeftRoot by remember { mutableStateOf(Offset.Zero) }
+            var gridContainerHeightPx by remember { mutableFloatStateOf(0f) }
+            val itemBoundsInRoot = remember { mutableStateMapOf<Int, Rect>() }
+            val aspectRatiosById = remember { mutableStateMapOf<Int, Float>() }
+            val gridState = rememberLazyStaggeredGridState()
+
+            LaunchedEffect(photos, savedOrderTokens, draggedPhoto) {
+                if (draggedPhoto == null) {
+                    val rankMap = savedOrderTokens.withIndex().associate { it.value to it.index }
+                    val sorted = photos.sortedWith(
+                        compareBy<ProgressPhoto> { rankMap[photoOrderToken(it)] ?: -1 }
+                            .thenByDescending { it.timestamp }
+                    )
+                    orderedPhotos.clear()
+                    orderedPhotos.addAll(sorted)
+                }
+            }
+
+            BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxSize()
-                    .weight(1f),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                items(photos, key = { it.id }) { photo ->
-                    val daysSinceBaseline = if (baselineTimestamp != null) {
-                        ((photo.timestamp - baselineTimestamp) / (1000 * 60 * 60 * 24)).toInt().coerceAtLeast(0)
-                    } else 0
-
-                    val isBaseline = photo.id == baselinePhoto?.id
-
-                    // Lazily inspect live file details if stored photoDetails is empty
-                    var liveDetails by remember(photo.id, photo.photoDetails, photo.photoPath) {
-                        mutableStateOf(photo.photoDetails)
+                    .weight(1f)
+                    .onGloballyPositioned { coords ->
+                        gridContainerTopLeftRoot = coords.positionInRoot()
+                        gridContainerHeightPx = coords.size.height.toFloat()
                     }
-                    LaunchedEffect(photo.id, photo.photoPath) {
-                        if (liveDetails.isBlank() && photo.photoPath.isNotBlank()) {
-                            val file = File(photo.photoPath)
-                            if (file.exists() && file.length() > 0L) {
-                                val meta = extractPhotoMetadata(context, file)
-                                liveDetails = meta.detailsSummary
+                    .pointerInput(Unit) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = { containerLocalOffset ->
+                                val startRoot = gridContainerTopLeftRoot + containerLocalOffset
+                                val hitEntry = itemBoundsInRoot.entries.firstOrNull { (_, rect) ->
+                                    rect.contains(startRoot)
+                                } ?: return@detectDragGesturesAfterLongPress
+                                val hitId = hitEntry.key
+                                val hitPhoto = orderedPhotos.firstOrNull { it.id == hitId }
+                                    ?: return@detectDragGesturesAfterLongPress
+                                val bounds = hitEntry.value
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                draggedPhoto = hitPhoto
+                                draggedAspectRatio = aspectRatiosById[hitId] ?: fallbackCollageRatio(hitId)
+                                draggedSizePx = IntSize(
+                                    bounds.width.roundToInt(),
+                                    bounds.height.roundToInt()
+                                )
+                                draggedTopLeftRoot = bounds.topLeft
+                                draggedFingerRoot = startRoot
+                            },
+                            onDrag = { change, dragAmount ->
+                                val active = draggedPhoto ?: return@detectDragGesturesAfterLongPress
+                                change.consume()
+                                draggedTopLeftRoot += dragAmount
+                                draggedFingerRoot += dragAmount
+
+                                val localY = draggedFingerRoot.y - gridContainerTopLeftRoot.y
+                                val edgeThreshold = 130f
+                                if (localY < edgeThreshold) {
+                                    scope.launch { gridState.scrollBy(-20f) }
+                                } else if (gridContainerHeightPx > 0f && localY > gridContainerHeightPx - edgeThreshold) {
+                                    scope.launch { gridState.scrollBy(20f) }
+                                }
+
+                                val now = System.currentTimeMillis()
+                                if (now - lastSwapTimeMs >= 140L) {
+                                    val targetId = itemBoundsInRoot.entries.firstOrNull { (id, rect) ->
+                                        id != active.id && rect.contains(draggedFingerRoot)
+                                    }?.key
+                                    if (targetId != null) {
+                                        val fromIdx = orderedPhotos.indexOfFirst { it.id == active.id }
+                                        val toIdx = orderedPhotos.indexOfFirst { it.id == targetId }
+                                        if (fromIdx != -1 && toIdx != -1 && fromIdx != toIdx) {
+                                            lastSwapTimeMs = now
+                                            val moved = orderedPhotos.removeAt(fromIdx)
+                                            orderedPhotos.add(toIdx, moved)
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        }
+                                    }
+                                }
+                            },
+                            onDragEnd = {
+                                if (draggedPhoto != null) {
+                                    val updatedOrder = orderedPhotos.map { photoOrderToken(it) }
+                                    draggedPhoto = null
+                                    scope.launch {
+                                        preferences.saveProgressPhotoOrder(userId, updatedOrder)
+                                    }
+                                }
+                            },
+                            onDragCancel = {
+                                draggedPhoto = null
+                            }
+                        )
+                    }
+            ) {
+                val columnCount = if (maxWidth >= 600.dp) 3 else 2
+
+                LazyVerticalStaggeredGrid(
+                    columns = StaggeredGridCells.Fixed(columnCount),
+                    state = gridState,
+                    userScrollEnabled = draggedPhoto == null,
+                    verticalItemSpacing = 8.dp,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(bottom = 16.dp),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .testTag("progress_collage_grid")
+                ) {
+                    items(orderedPhotos, key = { it.id }) { photo ->
+                        val tileAspectRatio by produceState(
+                            initialValue = fallbackCollageRatio(photo.id),
+                            key1 = photo.id,
+                            key2 = photo.photoPath
+                        ) {
+                            val resolved = resolveCollageAspectRatio(photo.photoPath, photo.id)
+                            aspectRatiosById[photo.id] = resolved
+                            value = resolved
+                        }
+                        val dateText = remember(photo.timestamp) {
+                            SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(Date(photo.timestamp))
+                        }
+                        val isBeingDragged = draggedPhoto?.id == photo.id
+
+                        DisposableEffect(photo.id) {
+                            onDispose {
+                                itemBoundsInRoot.remove(photo.id)
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            border = BorderStroke(
+                                width = 1.dp,
+                                color = if (isBeingDragged) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)
+                                }
+                            ),
+                            modifier = Modifier
+                                .animateItem()
+                                .fillMaxWidth()
+                                .alpha(if (isBeingDragged) 0.18f else 1f)
+                                .onGloballyPositioned { coords ->
+                                    itemBoundsInRoot[photo.id] = coords.boundsInRoot()
+                                }
+                                .clickable(enabled = draggedPhoto == null) {
+                                    selectedPhotoForPreview = photo
+                                }
+                                .testTag("progress_card_${photo.id}")
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .aspectRatio(tileAspectRatio)
+                                        .background(Color.Black),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    val imageFile = remember(photo.photoPath) {
+                                        if (photo.photoPath.isNotBlank()) File(photo.photoPath) else null
+                                    }
+                                    if (imageFile != null && imageFile.exists() && imageFile.length() > 0L) {
+                                        AsyncImage(
+                                            model = imageFile,
+                                            contentDescription = "Progress Photo taken on $dateText",
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    } else {
+                                        CircularProgressIndicator(
+                                            color = Color.White,
+                                            modifier = Modifier.size(24.dp),
+                                            strokeWidth = 2.dp
+                                        )
+                                    }
+                                }
+
+                                Text(
+                                    text = dateText,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 1,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                                )
                             }
                         }
                     }
+                }
 
-                    Card(
+                // Floating lifted photo preview while dragging
+                val activeDrag = draggedPhoto
+                if (activeDrag != null && draggedSizePx.width > 0 && draggedSizePx.height > 0) {
+                    val activeDateText = remember(activeDrag.timestamp) {
+                        SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(Date(activeDrag.timestamp))
+                    }
+                    val offsetX = (draggedTopLeftRoot.x - gridContainerTopLeftRoot.x).roundToInt()
+                    val offsetY = (draggedTopLeftRoot.y - gridContainerTopLeftRoot.y).roundToInt()
+
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary),
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("progress_card_${photo.id}"),
-                        shape = RoundedCornerShape(20.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            // Top Row: Milestone Badge & Delete Action
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = if (isBaseline) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer
-                                ) {
-                                    Text(
-                                        text = if (isBaseline) "🌱 Baseline • Starting Point" else "📈 Day ${daysSinceBaseline + 1} • Week ${(daysSinceBaseline / 7) + 1} (+${daysSinceBaseline}d)",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (isBaseline) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                    )
-                                }
-
-                                IconButton(
-                                    onClick = {
-                                        scope.launch {
-                                            val ownerUsername = withContext(Dispatchers.IO) {
-                                                repository.getUserById(userId)?.username.orEmpty()
-                                            }
-                                            try {
-                                                if (photo.photoPath.isNotBlank()) File(photo.photoPath).delete()
-                                            } catch (_: Exception) {}
-                                            repository.deleteProgressPhotoById(photo.id)
-                                            CloudflareR2Service.r2SyncScope.launch {
-                                                r2Service.deleteProgressPhoto(photo, preferences, ownerUsername)
-                                            }
-                                            CloudflareSyncService.appSyncScope.launch {
-                                                CloudflareSyncService(context).syncAllUserDataToD1(userId, repository, preferences)
-                                            }
-                                            Toast.makeText(context, "Progress photo deleted", Toast.LENGTH_SHORT).show()
-                                        }
-                                    },
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Delete,
-                                        contentDescription = "Delete photo",
-                                        tint = MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
+                            .offset { IntOffset(offsetX, offsetY) }
+                            .size(
+                                width = with(density) { draggedSizePx.width.toDp() },
+                                height = with(density) { draggedSizePx.height.toDp() }
+                            )
+                            .graphicsLayer {
+                                scaleX = 1.04f
+                                scaleY = 1.04f
+                                alpha = 0.96f
                             }
-
-                            Spacer(Modifier.height(10.dp))
-
-                            // Photo Container
+                            .shadow(14.dp, RoundedCornerShape(12.dp))
+                    ) {
+                        Column(modifier = Modifier.fillMaxSize()) {
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(290.dp)
-                                    .clip(RoundedCornerShape(16.dp))
+                                    .aspectRatio(draggedAspectRatio)
                                     .background(Color.Black),
                                 contentAlignment = Alignment.Center
                             ) {
-                                val imageFile = remember(photo.photoPath) {
-                                    if (photo.photoPath.isNotBlank()) File(photo.photoPath) else null
+                                val dragFile = remember(activeDrag.photoPath) {
+                                    if (activeDrag.photoPath.isNotBlank()) File(activeDrag.photoPath) else null
                                 }
-                                if (imageFile != null && imageFile.exists() && imageFile.length() > 0L) {
+                                if (dragFile != null && dragFile.exists() && dragFile.length() > 0L) {
                                     AsyncImage(
-                                        model = imageFile,
-                                        contentDescription = "Progress Photo taken on ${SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(Date(photo.timestamp))}",
+                                        model = dragFile,
+                                        contentDescription = null,
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier.fillMaxSize()
                                     )
-                                } else {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(28.dp))
-                                        Spacer(Modifier.height(8.dp))
-                                        Text(
-                                            text = "Loading photo from Cloudflare R2...",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = Color.White.copy(alpha = 0.8f)
-                                        )
-                                    }
                                 }
                             }
-
-                            Spacer(Modifier.height(12.dp))
-
-                            // PHOTO DATA SECTION: Extracted Date Taken, Time, Photo EXIF/File Data & Cloudflare R2 Status
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                            Text(
+                                text = activeDateText,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                textAlign = TextAlign.Center,
+                                maxLines = 1,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .testTag("photo_metadata_card_${photo.id}")
-                            ) {
-                                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    val dateFormatted = SimpleDateFormat("EEEE, MMMM d, yyyy", Locale.getDefault()).format(Date(photo.timestamp))
-                                    val timeFormatted = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date(photo.timestamp))
-                                    val isUploadingThis = photo.id in uploadingPhotoIds
-                                    val uploadError = uploadErrorById[photo.id]
-
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.weight(1f)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Filled.CalendarMonth,
-                                                contentDescription = "Photo Date Taken",
-                                                tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Spacer(Modifier.width(6.dp))
-                                            Column {
-                                                Text(
-                                                    text = "Date Taken: $dateFormatted",
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    color = MaterialTheme.colorScheme.onSurface
-                                                )
-                                            }
-                                        }
-
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(
-                                                imageVector = Icons.Filled.AccessTime,
-                                                contentDescription = "Photo Time",
-                                                tint = MaterialTheme.colorScheme.secondary,
-                                                modifier = Modifier.size(15.dp)
-                                            )
-                                            Spacer(Modifier.width(4.dp))
-                                            Text(
-                                                text = timeFormatted,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-
-                                    // Photo EXIF / Resolution / Size / Camera Details
-                                    if (liveDetails.isNotBlank()) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Filled.Info,
-                                                contentDescription = "Photo Data",
-                                                tint = MaterialTheme.colorScheme.secondary,
-                                                modifier = Modifier.size(14.dp)
-                                            )
-                                            Spacer(Modifier.width(6.dp))
-                                            Text(
-                                                text = "Photo Info: $liveDetails",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-
-                                    // Cloudflare R2 Storage Status + Manual Upload/Retry Button
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.weight(1f)
-                                        ) {
-                                            when {
-                                                photo.r2Key.isNotBlank() -> {
-                                                    Icon(
-                                                        imageVector = Icons.Filled.CloudDone,
-                                                        contentDescription = "Uploaded to Cloudflare R2",
-                                                        tint = MaterialTheme.colorScheme.primary,
-                                                        modifier = Modifier.size(15.dp)
-                                                    )
-                                                    Spacer(Modifier.width(6.dp))
-                                                    Text(
-                                                        text = "Saved to Cloudflare R2 (${photo.r2Key})",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.primary
-                                                    )
-                                                }
-                                                isUploadingThis -> {
-                                                    CircularProgressIndicator(
-                                                        modifier = Modifier.size(14.dp),
-                                                        strokeWidth = 2.dp
-                                                    )
-                                                    Spacer(Modifier.width(6.dp))
-                                                    Text(
-                                                        text = "Uploading photo to Cloudflare R2...",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.secondary
-                                                    )
-                                                }
-                                                else -> {
-                                                    Icon(
-                                                        imageVector = Icons.Filled.CloudUpload,
-                                                        contentDescription = "Upload to R2",
-                                                        tint = MaterialTheme.colorScheme.error,
-                                                        modifier = Modifier.size(15.dp)
-                                                    )
-                                                    Spacer(Modifier.width(6.dp))
-                                                    Text(
-                                                        text = uploadError ?: "Pending upload to Cloudflare R2",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.error
-                                                    )
-                                                }
-                                            }
-                                        }
-
-                                        if (photo.r2Key.isBlank() && !isUploadingThis) {
-                                            TextButton(
-                                                onClick = {
-                                                    enqueuePhotoUploadToR2(photo, showToast = true)
-                                                },
-                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                                modifier = Modifier.testTag("retry_r2_upload_btn_${photo.id}")
-                                            ) {
-                                                Text("Upload to R2", style = MaterialTheme.typography.labelSmall)
-                                            }
-                                        }
-                                    }
-
-                                    if (photo.caption.isNotBlank()) {
-                                        HorizontalDivider(
-                                            modifier = Modifier.padding(vertical = 2.dp),
-                                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                                        )
-                                        Text(
-                                            text = "📝 ${photo.caption}",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            fontWeight = FontWeight.Medium,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                    }
-                                }
-                            }
-
-                            Spacer(Modifier.height(12.dp))
-
-                            // AI PHOTO ANALYSIS & FEEDBACK SECTION
-                            if (analyzingPhotoId == photo.id) {
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f)),
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(14.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                    ) {
-                                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.5.dp)
-                                        Column {
-                                            Text(
-                                                text = "Analyzing photo with AI Coach...",
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onSecondaryContainer
-                                            )
-                                            Text(
-                                                text = "Reviewing physique, posture, symmetry & progress vs baseline",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
-                                            )
-                                        }
-                                    }
-                                }
-                            } else if (photo.aiFeedback.isNotBlank()) {
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)),
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
-                                    shape = RoundedCornerShape(14.dp)
-                                ) {
-                                    Column(modifier = Modifier.padding(14.dp)) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Icon(
-                                                    imageVector = Icons.Filled.AutoAwesome,
-                                                    contentDescription = null,
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                                Spacer(Modifier.width(6.dp))
-                                                Text(
-                                                    text = "AI Physique & Progress Feedback",
-                                                    style = MaterialTheme.typography.titleSmall,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.primary
-                                                )
-                                            }
-
-                                            IconButton(
-                                                onClick = {
-                                                    triggerAiAnalysis(
-                                                        photo = photo,
-                                                        baselinePhoto = if (baselinePhoto?.id != photo.id) baselinePhoto else null,
-                                                        userId = userId,
-                                                        context = context,
-                                                        scope = scope,
-                                                        repository = repository,
-                                                        preferences = preferences,
-                                                        onStart = { analyzingPhotoId = photo.id },
-                                                        onFinish = { analyzingPhotoId = null }
-                                                    )
-                                                },
-                                                modifier = Modifier.size(32.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Filled.Refresh,
-                                                    contentDescription = "Re-analyze with AI",
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                            }
-                                        }
-
-                                        Spacer(Modifier.height(8.dp))
-
-                                        Text(
-                                            text = photo.aiFeedback,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurface,
-                                            lineHeight = MaterialTheme.typography.bodyMedium.lineHeight
-                                        )
-                                    }
-                                }
-                            } else {
-                                OutlinedButton(
-                                    onClick = {
-                                        triggerAiAnalysis(
-                                            photo = photo,
-                                            baselinePhoto = if (baselinePhoto?.id != photo.id) baselinePhoto else null,
-                                            userId = userId,
-                                            context = context,
-                                            scope = scope,
-                                            repository = repository,
-                                            preferences = preferences,
-                                            onStart = { analyzingPhotoId = photo.id },
-                                            onFinish = { analyzingPhotoId = null }
-                                        )
-                                    },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .heightIn(min = 44.dp)
-                                        .testTag("analyze_photo_btn_${photo.id}"),
-                                    shape = RoundedCornerShape(12.dp),
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.AutoAwesome,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(Modifier.width(8.dp))
-                                    Text(
-                                        text = "Analyze Photo & Get AI Feedback 🤖",
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
-                            }
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                            )
                         }
                     }
                 }
             }
         }
+    }
+
+    // Clean full-photo preview dialog on tap (with delete option)
+    selectedPhotoForPreview?.let { photo ->
+        val dateText = remember(photo.timestamp) {
+            SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(Date(photo.timestamp))
+        }
+        AlertDialog(
+            onDismissRequest = { selectedPhotoForPreview = null },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 240.dp, max = 420.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Color.Black),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        val imageFile = remember(photo.photoPath) {
+                            if (photo.photoPath.isNotBlank()) File(photo.photoPath) else null
+                        }
+                        if (imageFile != null && imageFile.exists() && imageFile.length() > 0L) {
+                            AsyncImage(
+                                model = imageFile,
+                                contentDescription = "Progress Photo taken on $dateText",
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        } else {
+                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(28.dp))
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        text = dateText,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { selectedPhotoForPreview = null }) {
+                    Text("Close")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        selectedPhotoForPreview = null
+                        scope.launch {
+                            val ownerUsername = withContext(Dispatchers.IO) {
+                                repository.getUserById(userId)?.username.orEmpty()
+                            }
+                            try {
+                                if (photo.photoPath.isNotBlank()) File(photo.photoPath).delete()
+                            } catch (_: Exception) {}
+                            repository.deleteProgressPhotoById(photo.id)
+                            CloudflareR2Service.r2SyncScope.launch {
+                                r2Service.deleteProgressPhoto(photo, preferences, ownerUsername)
+                            }
+                            CloudflareSyncService.appSyncScope.launch {
+                                CloudflareSyncService(context).syncAllUserDataToD1(userId, repository, preferences)
+                            }
+                            Toast.makeText(context, "Progress photo deleted", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Delete")
+                }
+            }
+        )
     }
 
     // Dialog for previewing extracted photo date/metadata & adding caption before saving
@@ -1173,6 +1170,9 @@ private fun triggerAiAnalysis(
                 val quads = preferences.bodyQuadsFlow.first()
                 val calves = preferences.bodyCalvesFlow.first()
                 val neck = preferences.bodyNeckFlow.first()
+                val forearms = preferences.bodyForearmsFlow.first()
+                val wrists = preferences.bodyWristsFlow.first()
+                val ankles = preferences.bodyAnklesFlow.first()
 
                 buildList {
                     if (weight.isNotBlank()) add("Weight: ${weight} kg")
@@ -1185,6 +1185,9 @@ private fun triggerAiAnalysis(
                     if (quads.isNotBlank()) add("Quads: ${quads} cm")
                     if (calves.isNotBlank()) add("Calves: ${calves} cm")
                     if (neck.isNotBlank()) add("Neck: ${neck} cm")
+                    if (forearms.isNotBlank()) add("Forearms: ${forearms} cm")
+                    if (wrists.isNotBlank()) add("Wrists: ${wrists} cm")
+                    if (ankles.isNotBlank()) add("Ankles: ${ankles} cm")
                 }.joinToString(", ")
             }
 

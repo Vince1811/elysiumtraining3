@@ -169,11 +169,11 @@ fun TopBarAccountButtonAndMenu(
     Box(modifier = modifier) {
         FilledTonalButton(
             onClick = { showAccountMenu = true },
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-            shape = RoundedCornerShape(24.dp),
+            contentPadding = PaddingValues(start = 6.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
+            shape = RoundedCornerShape(32.dp),
             modifier = Modifier
                 .heightIn(min = 48.dp)
-                .widthIn(max = 156.dp)
+                .widthIn(max = 196.dp)
                 .testTag("top_bar_account_button")
         ) {
             if (hasProfilePic) {
@@ -182,15 +182,15 @@ fun TopBarAccountButtonAndMenu(
                     contentDescription = "Profile Picture",
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
-                        .size(28.dp)
+                        .size(56.dp)
                         .clip(CircleShape)
-                        .border(1.5.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                        .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape)
                 )
             } else {
                 Icon(
                     imageVector = Icons.Filled.AccountCircle,
                     contentDescription = "Account",
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(48.dp)
                 )
             }
             Spacer(Modifier.width(6.dp))
@@ -256,15 +256,16 @@ fun TopBarAccountButtonAndMenu(
                             contentDescription = "Profile Picture",
                             contentScale = ContentScale.Crop,
                             modifier = Modifier
-                                .size(32.dp)
+                                .size(64.dp)
                                 .clip(CircleShape)
-                                .border(1.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                                .border(1.5.dp, MaterialTheme.colorScheme.primary, CircleShape)
                         )
                     } else {
                         Icon(
                             imageVector = Icons.Filled.AccountCircle,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(56.dp)
                         )
                     }
                 },
@@ -367,7 +368,7 @@ fun TopBarAccountButtonAndMenu(
                             contentDescription = "Current Profile Picture",
                             contentScale = ContentScale.Crop,
                             modifier = Modifier
-                                .size(96.dp)
+                                .size(192.dp)
                                 .clip(CircleShape)
                                 .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape)
                         )
@@ -376,7 +377,7 @@ fun TopBarAccountButtonAndMenu(
                             imageVector = Icons.Filled.AccountCircle,
                             contentDescription = "Default Profile Icon",
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(84.dp)
+                            modifier = Modifier.size(168.dp)
                         )
                     }
 

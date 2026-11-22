@@ -123,6 +123,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -156,6 +157,7 @@ class WorkoutViewModel(
 ) : ViewModel() {
     val todayEpoch = java.util.Calendar.getInstance().timeInMillis / (1000 * 60 * 60 * 24)
     private var autoD1SyncJob: kotlinx.coroutines.Job? = null
+    private var autoSnapshotSyncJob: kotlinx.coroutines.Job? = null
 
     private fun scheduleAutoD1Sync() {
         val ctx = appContext ?: return
@@ -163,10 +165,39 @@ class WorkoutViewModel(
         autoD1SyncJob?.cancel()
         autoD1SyncJob = com.example.data.CloudflareSyncService.appSyncScope.launch {
             prefs.setPendingD1Upload(true)
-            delay(350L)
+            delay(1500L)
             val syncService = com.example.data.CloudflareSyncService(ctx)
             if (syncService.hasCloudflareCredentials(prefs)) {
                 syncService.syncAllUserDataToD1(userId, repository, prefs)
+            }
+        }
+    }
+
+    private fun scheduleAutoSnapshotSync() {
+        val ctx = appContext ?: return
+        val prefs = preferencesManager ?: return
+        autoSnapshotSyncJob?.cancel()
+        autoSnapshotSyncJob = com.example.data.CloudflareSyncService.appSyncScope.launch {
+            delay(10_000L)
+            val syncService = com.example.data.CloudflareSyncService(ctx)
+            if (syncService.hasCloudflareCredentials(prefs)) {
+                syncService.syncSnapshotOnlyToD1(userId, repository, prefs)
+            }
+        }
+    }
+
+    fun flushPendingSnapshotSync() {
+        val ctx = appContext ?: return
+        val prefs = preferencesManager ?: return
+        val hadScheduled = autoSnapshotSyncJob?.isActive == true
+        autoSnapshotSyncJob?.cancel()
+        com.example.data.CloudflareSyncService.appSyncScope.launch {
+            val hasPending = prefs.pendingD1UploadFlow.first()
+            if (hadScheduled || hasPending) {
+                val syncService = com.example.data.CloudflareSyncService(ctx)
+                if (syncService.hasCloudflareCredentials(prefs)) {
+                    syncService.syncSnapshotOnlyToD1(userId, repository, prefs)
+                }
             }
         }
     }
@@ -183,8 +214,10 @@ class WorkoutViewModel(
                     programEpochDays = todayEpoch,
                     workoutSet = workoutSet,
                     repository = repository,
-                    preferencesManager = prefs
+                    preferencesManager = prefs,
+                    syncSnapshot = false
                 )
+                scheduleAutoSnapshotSync()
             }
         }
     }
@@ -202,8 +235,10 @@ class WorkoutViewModel(
                     exerciseName = exerciseName,
                     orderIndex = orderIndex,
                     repository = repository,
-                    preferencesManager = prefs
+                    preferencesManager = prefs,
+                    syncSnapshot = false
                 )
+                scheduleAutoSnapshotSync()
             }
         }
     }
@@ -214,7 +249,6 @@ class WorkoutViewModel(
         com.example.data.CloudflareSyncService.appSyncScope.launch {
             val syncService = com.example.data.CloudflareSyncService(ctx)
             if (syncService.hasCloudflareCredentials(prefs)) {
-                syncService.syncAllUserDataToD1(userId, repository, prefs)
                 syncService.syncOnAppOpenOrReconnect(userId, repository, prefs)
             }
         }
@@ -688,10 +722,13 @@ class WorkoutViewModel(
     fun updateSetsOrder(orderedList: List<WorkoutSet>) = viewModelScope.launch {
         val now = System.currentTimeMillis()
         val updatedList = orderedList.mapIndexed { index, s ->
-            s.copy(orderIndex = index, timestamp = now)
+            if (s.orderIndex != index) s.copy(orderIndex = index, timestamp = now) else s
         }
-        repository.insertSets(updatedList)
-        scheduleAutoD1Sync()
+        val changed = updatedList.zip(orderedList).any { (a, b) -> a.orderIndex != b.orderIndex }
+        if (changed) {
+            repository.insertSets(updatedList)
+            scheduleAutoD1Sync()
+        }
     }
 
     val workoutProfiles: StateFlow<List<WorkoutProfile>> = repository.getAllWorkoutProfilesForUser(userId)
@@ -715,7 +752,7 @@ class WorkoutViewModel(
                 com.example.data.CloudflareSyncService(ctx).pushWorkoutProfileToD1(username, profile, prefs)
             }
         }
-        scheduleAutoD1Sync()
+        scheduleAutoSnapshotSync()
     }
 
     fun deleteWorkoutProfile(id: Int) = viewModelScope.launch {
@@ -729,7 +766,7 @@ class WorkoutViewModel(
                 com.example.data.CloudflareSyncService(ctx).deleteWorkoutProfileFromD1(username, existing.name, prefs)
             }
         }
-        scheduleAutoD1Sync()
+        scheduleAutoSnapshotSync()
     }
 
     fun loadProfileToToday(profile: WorkoutProfile) = viewModelScope.launch {
@@ -815,6 +852,11 @@ fun WorkoutScreen(repository: WorkoutRepository, preferences: com.example.data.P
     val viewModel: WorkoutViewModel = viewModel(
         factory = WorkoutViewModelFactory(repository, userId, preferences, context.applicationContext)
     )
+    DisposableEffect(viewModel) {
+        onDispose {
+            viewModel.flushPendingSnapshotSync()
+        }
+    }
     val categories by viewModel.categories.collectAsState()
     val sets by viewModel.currentSets.collectAsState()
     val scope = rememberCoroutineScope()

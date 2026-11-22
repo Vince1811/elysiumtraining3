@@ -106,9 +106,32 @@ class CloudflareSyncService(val context: Context) {
 
     companion object {
         private val syncMutex = Mutex()
+        private val initializedTablesByDb = java.util.concurrent.ConcurrentHashMap<String, MutableSet<String>>()
+        private val usersSyncedSessionDbs = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        private val lastReconnectSyncTimeByKey = java.util.concurrent.ConcurrentHashMap<String, Long>()
+        private val lastPushedUserHashByKey = java.util.concurrent.ConcurrentHashMap<String, String>()
         val appSyncScope = kotlinx.coroutines.CoroutineScope(
             kotlinx.coroutines.SupervisorJob() + Dispatchers.IO
         )
+
+        private fun isTableInitialized(dbId: String, tableName: String): Boolean {
+            return initializedTablesByDb[dbId]?.contains(tableName) == true
+        }
+
+        private fun markTableInitialized(dbId: String, tableName: String) {
+            initializedTablesByDb.getOrPut(dbId) {
+                java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap())
+            }.add(tableName)
+        }
+
+        private fun sha256Short(input: String): String {
+            return try {
+                val digest = java.security.MessageDigest.getInstance("SHA-256").digest(input.toByteArray(Charsets.UTF_8))
+                digest.take(16).joinToString("") { "%02x".format(it) }
+            } catch (_: Exception) {
+                input.hashCode().toString()
+            }
+        }
     }
 
     fun isNetworkAvailable(): Boolean {
@@ -163,8 +186,7 @@ class CloudflareSyncService(val context: Context) {
             val elapsed = System.currentTimeMillis() - startMs
             if (ok) {
                 // Ensure table is also ready
-                val createTableSql = "CREATE TABLE IF NOT EXISTS workout_sync (id INTEGER PRIMARY KEY AUTOINCREMENT, data TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP);"
-                executeD1Query(acc, db, tok, createTableSql)
+                ensureWorkoutSyncTable(acc, db, tok)
                 D1TestResult(
                     success = true,
                     databaseId = db,
@@ -249,6 +271,12 @@ class CloudflareSyncService(val context: Context) {
                 val topSuccess = parsed?.optBoolean("success", true) ?: true
                 val firstResultSuccess = parsed?.optJSONArray("result")?.optJSONObject(0)?.optBoolean("success", true) ?: true
                 val apiSuccess = resp.isSuccessful && topSuccess && firstResultSuccess
+                if (!apiSuccess) {
+                    val errText = extractD1Error(parsed).orEmpty()
+                    if (errText.contains("no such table", ignoreCase = true) || errText.contains("no such column", ignoreCase = true)) {
+                        initializedTablesByDb.remove(resolvedDb)
+                    }
+                }
                 if (!apiSuccess && parsed == null) {
                     false to JSONObject().put("error", "HTTP ${resp.code}: ${resp.message}")
                 } else {
@@ -260,6 +288,133 @@ class CloudflareSyncService(val context: Context) {
         }
     }
 
+    private suspend fun preloadPersistentSchemaCache(
+        accountId: String,
+        databaseId: String,
+        apiToken: String,
+        preferencesManager: PreferencesManager
+    ) {
+        val currentSchemaVersion = 2
+        if (preferencesManager.getD1SchemaVersion(databaseId) >= currentSchemaVersion) {
+            markTableInitialized(databaseId, "workout_sync")
+            markTableInitialized(databaseId, "users")
+            markTableInitialized(databaseId, "exercise_logs")
+            markTableInitialized(databaseId, "workout_profiles_cloud")
+            return
+        }
+        val okSync = ensureWorkoutSyncTable(accountId, databaseId, apiToken)
+        val okUsers = ensureUsersTableWithContactColumns(accountId, databaseId, apiToken)
+        val okLogs = ensureExerciseLogsTable(accountId, databaseId, apiToken)
+        val okProfiles = ensureWorkoutProfilesCloudTable(accountId, databaseId, apiToken)
+        if (okSync && okUsers && okLogs && okProfiles) {
+            preferencesManager.saveD1SchemaVersion(databaseId, currentSchemaVersion)
+        }
+    }
+
+    private fun ensureWorkoutSyncTable(
+        accountId: String,
+        databaseId: String,
+        apiToken: String
+    ): Boolean {
+        if (isTableInitialized(databaseId, "workout_sync")) return true
+        val createTableSql =
+            "CREATE TABLE IF NOT EXISTS workout_sync (id INTEGER PRIMARY KEY AUTOINCREMENT, user_key TEXT, data TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP);"
+        val (tableOk, tableResp) = executeD1Query(accountId, databaseId, apiToken, createTableSql)
+        if (!tableOk) {
+            lastStatementError = extractD1Error(tableResp) ?: "Failed to create workout_sync table"
+            return false
+        }
+        try {
+            val (infoOk, infoResp) = executeD1Query(accountId, databaseId, apiToken, "PRAGMA table_info(workout_sync);")
+            if (infoOk && infoResp != null) {
+                val cols = mutableSetOf<String>()
+                val rows = infoResp.optJSONArray("result")?.optJSONObject(0)?.optJSONArray("results")
+                if (rows != null) {
+                    for (i in 0 until rows.length()) {
+                        rows.optJSONObject(i)?.optString("name")?.let { cols.add(it.lowercase()) }
+                    }
+                }
+                if ("user_key" !in cols) {
+                    executeD1Query(accountId, databaseId, apiToken, "ALTER TABLE workout_sync ADD COLUMN user_key TEXT;")
+                }
+            }
+            val (idxOk, _) = executeD1Query(
+                accountId,
+                databaseId,
+                apiToken,
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_workout_sync_user_key ON workout_sync(user_key);"
+            )
+            if (!idxOk) {
+                // One-time cleanup of duplicate non-null user_key rows keeping the newest row so UNIQUE index succeeds
+                executeD1Query(
+                    accountId,
+                    databaseId,
+                    apiToken,
+                    "DELETE FROM workout_sync WHERE user_key IS NOT NULL AND id NOT IN (SELECT MAX(id) FROM workout_sync WHERE user_key IS NOT NULL GROUP BY user_key);"
+                )
+                executeD1Query(
+                    accountId,
+                    databaseId,
+                    apiToken,
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_workout_sync_user_key ON workout_sync(user_key);"
+                )
+            }
+        } catch (_: Exception) {
+        }
+        markTableInitialized(databaseId, "workout_sync")
+        return true
+    }
+
+    private fun resolveUserKeyFromSnapshot(workoutDataJson: String): String {
+        return try {
+            val obj = JSONObject(workoutDataJson)
+            val uname = obj.optString("username", "").ifBlank {
+                obj.optJSONObject("body_profile")?.optString("username", "").orEmpty()
+            }.trim().lowercase()
+            when {
+                uname.isNotBlank() -> uname
+                obj.optInt("user_id", -1) > 0 -> "user_${obj.optInt("user_id")}"
+                else -> "default"
+            }
+        } catch (_: Exception) {
+            "default"
+        }
+    }
+
+    private fun computeSnapshotContentHash(workoutDataJson: String): String {
+        return try {
+            val obj = JSONObject(workoutDataJson)
+            obj.remove("sync_timestamp")
+            sha256Short(obj.toString())
+        } catch (_: Exception) {
+            sha256Short(workoutDataJson)
+        }
+    }
+
+    private suspend fun saveSnapshotIfChanged(
+        userId: Int,
+        repository: WorkoutRepository,
+        preferencesManager: PreferencesManager,
+        accountId: String,
+        databaseId: String,
+        apiToken: String,
+        forceWrite: Boolean = false
+    ): Boolean {
+        val payload = buildFullSnapshotJson(userId, repository, preferencesManager)
+        val contentHash = computeSnapshotContentHash(payload)
+        if (!forceWrite) {
+            val prevHash = preferencesManager.getD1LastSnapshotHash(userId, databaseId)
+            if (prevHash == contentHash && prevHash.isNotBlank()) {
+                return true
+            }
+        }
+        val ok = testAndSyncD1(accountId, databaseId, apiToken, payload)
+        if (ok) {
+            preferencesManager.saveD1LastSnapshotHash(userId, databaseId, contentHash)
+        }
+        return ok
+    }
+
     suspend fun testAndSyncD1(
         accountId: String,
         databaseId: String,
@@ -267,19 +422,48 @@ class CloudflareSyncService(val context: Context) {
         workoutDataJson: String
     ): Boolean = withContext(Dispatchers.IO) {
         try {
-            val createTableSql =
-                "CREATE TABLE IF NOT EXISTS workout_sync (id INTEGER PRIMARY KEY AUTOINCREMENT, data TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP);"
-            val (tableOk, tableResp) = executeD1Query(accountId, databaseId, apiToken, createTableSql)
-            if (!tableOk) {
-                lastStatementError = extractD1Error(tableResp) ?: "Failed to create workout_sync table"
+            if (!ensureWorkoutSyncTable(accountId, databaseId, apiToken)) {
                 return@withContext false
             }
 
-            val insertSql = "INSERT INTO workout_sync (data) VALUES (?);"
-            val params = JSONArray().put(workoutDataJson)
-            val (insertOk, insertResp) = executeD1Query(accountId, databaseId, apiToken, insertSql, params)
+            val userKey = resolveUserKeyFromSnapshot(workoutDataJson)
+            val upsertSql =
+                "INSERT INTO workout_sync (user_key, data, timestamp) VALUES (?, ?, CURRENT_TIMESTAMP) " +
+                    "ON CONFLICT(user_key) DO UPDATE SET data = excluded.data, timestamp = CURRENT_TIMESTAMP;"
+            val params = JSONArray().put(userKey).put(workoutDataJson)
+            val (upsertOk, upsertResp) = executeD1Query(accountId, databaseId, apiToken, upsertSql, params)
+            if (upsertOk) return@withContext true
+
+            // Fallback for pre-existing tables where duplicate user_key rows prevent unique index creation
+            val (selOk, selResp) = executeD1Query(
+                accountId, databaseId, apiToken,
+                "SELECT id FROM workout_sync WHERE user_key = ? ORDER BY id DESC LIMIT 1;",
+                JSONArray().put(userKey)
+            )
+            val existingId = if (selOk) {
+                selResp?.optJSONArray("result")?.optJSONObject(0)?.optJSONArray("results")
+                    ?.optJSONObject(0)?.optInt("id", -1) ?: -1
+            } else -1
+
+            if (existingId > 0) {
+                val (updOk, updResp) = executeD1Query(
+                    accountId, databaseId, apiToken,
+                    "UPDATE workout_sync SET data = ?, timestamp = CURRENT_TIMESTAMP WHERE id = ?;",
+                    JSONArray().put(workoutDataJson).put(existingId)
+                )
+                if (!updOk) {
+                    lastStatementError = extractD1Error(updResp) ?: extractD1Error(upsertResp) ?: "Failed updating snapshot in workout_sync"
+                }
+                return@withContext updOk
+            }
+
+            val (insertOk, insertResp) = executeD1Query(
+                accountId, databaseId, apiToken,
+                "INSERT INTO workout_sync (user_key, data) VALUES (?, ?);",
+                params
+            )
             if (!insertOk) {
-                lastStatementError = extractD1Error(insertResp) ?: "Failed inserting snapshot into workout_sync"
+                lastStatementError = extractD1Error(insertResp) ?: extractD1Error(upsertResp) ?: "Failed inserting snapshot into workout_sync"
             }
             insertOk
         } catch (e: Exception) {
@@ -295,14 +479,11 @@ class CloudflareSyncService(val context: Context) {
         apiToken: String
     ): D1FetchResult = withContext(Dispatchers.IO) {
         try {
-            val createTableSql =
-                "CREATE TABLE IF NOT EXISTS workout_sync (id INTEGER PRIMARY KEY AUTOINCREMENT, data TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP);"
-            val (tableOk, tableResp) = executeD1Query(accountId, databaseId, apiToken, createTableSql)
-            if (!tableOk) {
-                val errMsg = tableResp?.optJSONArray("errors")?.optJSONObject(0)?.optString("message")
-                    ?: tableResp?.optString("error")?.takeIf { it.isNotBlank() }
-                    ?: "Could not connect to Cloudflare D1. Verify Account ID, Database ID & API Token."
-                return@withContext D1FetchResult(success = false, errorMessage = errMsg)
+            if (!ensureWorkoutSyncTable(accountId, databaseId, apiToken)) {
+                return@withContext D1FetchResult(
+                    success = false,
+                    errorMessage = lastStatementError ?: "Could not connect to Cloudflare D1. Verify Account ID, Database ID & API Token."
+                )
             }
 
             val selectSql = "SELECT data, timestamp FROM workout_sync ORDER BY id DESC LIMIT 1;"
@@ -393,8 +574,11 @@ class CloudflareSyncService(val context: Context) {
                     val quads = body.optString("quads_cm", "")
                     val calves = body.optString("calves_cm", "")
                     val neck = body.optString("neck_cm", "")
-                    if (bicep.isNotBlank() || chest.isNotBlank() || middle.isNotBlank() || quads.isNotBlank() || calves.isNotBlank() || neck.isNotBlank()) {
-                        preferencesManager.saveBodyMeasurements(bicep, chest, middle, quads, calves, neck)
+                    val forearms = body.optString("forearms_cm", "")
+                    val wrists = body.optString("wrists_cm", "")
+                    val ankles = body.optString("ankles_cm", "")
+                    if (bicep.isNotBlank() || chest.isNotBlank() || middle.isNotBlank() || quads.isNotBlank() || calves.isNotBlank() || neck.isNotBlank() || forearms.isNotBlank() || wrists.isNotBlank() || ankles.isNotBlank()) {
+                        preferencesManager.saveBodyMeasurements(bicep, chest, middle, quads, calves, neck, forearms, wrists, ankles)
                     }
                 }
 
@@ -656,28 +840,25 @@ class CloudflareSyncService(val context: Context) {
         }
     }
 
-    suspend fun fetchAllPersonProfilesFromD1(
+    private suspend fun fetchAllPersonProfilesWithRawRowsFromD1(
         accountId: String,
         databaseId: String,
         apiToken: String
-    ): D1PlatformFetchResult = withContext(Dispatchers.IO) {
+    ): Pair<D1PlatformFetchResult, String?> = withContext(Dispatchers.IO) {
         try {
-            val createTableSql =
-                "CREATE TABLE IF NOT EXISTS workout_sync (id INTEGER PRIMARY KEY AUTOINCREMENT, data TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP);"
-            val (tableOk, tableResp) = executeD1Query(accountId, databaseId, apiToken, createTableSql)
-            if (!tableOk) {
-                val errMsg = tableResp?.optJSONArray("errors")?.optJSONObject(0)?.optString("message")
-                    ?: tableResp?.optString("error")?.takeIf { it.isNotBlank() }
-                    ?: "Could not connect to Cloudflare D1. Check Account ID, Database ID & API Token."
-                return@withContext D1PlatformFetchResult(success = false, errorMessage = errMsg)
+            if (!ensureWorkoutSyncTable(accountId, databaseId, apiToken)) {
+                return@withContext D1PlatformFetchResult(
+                    success = false,
+                    errorMessage = lastStatementError ?: "Could not connect to Cloudflare D1. Check Account ID, Database ID & API Token."
+                ) to null
             }
 
-            val selectSql = "SELECT id, data, timestamp FROM workout_sync ORDER BY id DESC LIMIT 100;"
+            val selectSql = "SELECT id, data, timestamp FROM workout_sync ORDER BY id DESC LIMIT 25;"
             val (selectOk, selectResp) = executeD1Query(accountId, databaseId, apiToken, selectSql)
             if (!selectOk || selectResp == null) {
                 val errMsg = selectResp?.optJSONArray("errors")?.optJSONObject(0)?.optString("message")
                     ?: "Failed to query Cloudflare D1."
-                return@withContext D1PlatformFetchResult(success = false, errorMessage = errMsg)
+                return@withContext D1PlatformFetchResult(success = false, errorMessage = errMsg) to null
             }
 
             val rows = selectResp.optJSONArray("result")?.optJSONObject(0)?.optJSONArray("results")
@@ -685,7 +866,7 @@ class CloudflareSyncService(val context: Context) {
                 return@withContext D1PlatformFetchResult(
                     success = false,
                     errorMessage = "No synced records found in Cloudflare D1 yet. Sync from Settings first."
-                )
+                ) to null
             }
 
             val latestByPerson = parseSnapshotRows(rows, defaultSyncLabel = "Recent")
@@ -694,21 +875,27 @@ class CloudflareSyncService(val context: Context) {
                 return@withContext D1PlatformFetchResult(
                     success = false,
                     errorMessage = "D1 rows found, but no valid profile snapshots could be parsed."
-                )
+                ) to null
             }
 
             D1PlatformFetchResult(
                 success = true,
                 profiles = latestByPerson
-            )
+            ) to rows.toString()
         } catch (e: Exception) {
             e.printStackTrace()
             D1PlatformFetchResult(
                 success = false,
                 errorMessage = e.localizedMessage ?: "Failed to load D1 platform data."
-            )
+            ) to null
         }
     }
+
+    suspend fun fetchAllPersonProfilesFromD1(
+        accountId: String,
+        databaseId: String,
+        apiToken: String
+    ): D1PlatformFetchResult = fetchAllPersonProfilesWithRawRowsFromD1(accountId, databaseId, apiToken).first
 
     private fun parseSnapshotRows(
         rows: JSONArray,
@@ -1039,19 +1226,13 @@ class CloudflareSyncService(val context: Context) {
             }
         }
 
-        val liveResult = fetchAllPersonProfilesFromD1(acc, db, tok)
+        val (liveResult, rawRowsJson) = fetchAllPersonProfilesWithRawRowsFromD1(acc, db, tok)
         if (liveResult.success) {
-            // Also cache raw rows for offline viewing
-            try {
-                val selectSql = "SELECT id, data, timestamp FROM workout_sync ORDER BY id DESC LIMIT 100;"
-                val (ok, resp) = executeD1Query(acc, db, tok, selectSql)
-                if (ok && resp != null) {
-                    val rows = resp.optJSONArray("result")?.optJSONObject(0)?.optJSONArray("results")
-                    if (rows != null) {
-                        preferencesManager.saveCachedD1PlatformJson(rows.toString())
-                    }
-                }
-            } catch (_: Exception) {}
+            if (!rawRowsJson.isNullOrBlank()) {
+                try {
+                    preferencesManager.saveCachedD1PlatformJson(rawRowsJson)
+                } catch (_: Exception) {}
+            }
             return@withContext liveResult
         } else {
             val cached = parseRowsJsonToProfiles(preferencesManager.cachedD1PlatformJsonFlow.first())
@@ -1064,6 +1245,7 @@ class CloudflareSyncService(val context: Context) {
     }
 
     private fun ensureUsersTableWithContactColumns(acc: String, db: String, tok: String): Boolean {
+        if (isTableInitialized(db, "users")) return true
         val createUsersSql =
             "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, local_user_id INTEGER, username TEXT UNIQUE, password_hash TEXT, email TEXT DEFAULT '', phone_number TEXT DEFAULT '', created_at DATETIME DEFAULT CURRENT_TIMESTAMP);"
         val (tableOk, _) = executeD1Query(acc, db, tok, createUsersSql)
@@ -1089,6 +1271,7 @@ class CloudflareSyncService(val context: Context) {
             executeD1Query(acc, db, tok, "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username);")
         } catch (_: Exception) {
         }
+        markTableInitialized(db, "users")
         return true
     }
 
@@ -1312,35 +1495,23 @@ class CloudflareSyncService(val context: Context) {
 
     suspend fun syncRegisteredUsersWithD1(
         repository: WorkoutRepository,
-        preferencesManager: PreferencesManager
+        preferencesManager: PreferencesManager,
+        force: Boolean = false
     ) = withContext(Dispatchers.IO) {
         try {
             val (acc, db, tok) = getResolvedCredentials(preferencesManager)
             if (acc.isBlank() || db.isBlank() || tok.isBlank() || !isNetworkAvailable()) return@withContext
+            if (!force && db in usersSyncedSessionDbs) return@withContext
             if (!ensureUsersTableWithContactColumns(acc, db, tok)) return@withContext
 
-            // Push all local users to D1 first
-            val localUsers = repository.getAllUsers()
-            localUsers.forEach { u ->
-                if (u.username.isNotBlank() && !u.username.equals("guest_tester", ignoreCase = true)) {
-                    registerUserInD1(
-                        username = u.username,
-                        passwordHash = u.passwordHash,
-                        localUserId = u.id,
-                        preferencesManager = preferencesManager,
-                        email = u.email,
-                        phoneNumber = u.phoneNumber
-                    )
-                }
-            }
-
-            // Pull any remote registered users not yet present locally
+            // Pull remote registered users first so we only write missing/changed local users
             val (ok, resp) = executeD1Query(
                 acc,
                 db,
                 tok,
-                "SELECT username, password_hash, COALESCE(email, '') AS email, COALESCE(phone_number, '') AS phone_number FROM users ORDER BY id ASC LIMIT 200;"
+                "SELECT username, password_hash, COALESCE(email, '') AS email, COALESCE(phone_number, '') AS phone_number FROM users ORDER BY id ASC LIMIT 50;"
             )
+            val remoteByUsernameLower = mutableMapOf<String, Triple<String, String, String>>()
             if (ok && resp != null) {
                 val rows = resp.optJSONArray("result")?.optJSONObject(0)?.optJSONArray("results")
                 if (rows != null) {
@@ -1351,6 +1522,7 @@ class CloudflareSyncService(val context: Context) {
                         val pass = r.optString("password_hash", "")
                         val email = r.optString("email", "")
                         val phone = r.optString("phone_number", "")
+                        remoteByUsernameLower[uname.lowercase()] = Triple(pass, email, phone)
                         val existing = repository.getUserByUsername(uname)
                         if (existing == null) {
                             repository.insertUser(
@@ -1371,6 +1543,31 @@ class CloudflareSyncService(val context: Context) {
                         }
                     }
                 }
+            }
+
+            // Push only local users that are missing or out-of-date in D1
+            val localUsers = repository.getAllUsers()
+            localUsers.forEach { u ->
+                if (u.username.isNotBlank() && !u.username.equals("guest_tester", ignoreCase = true)) {
+                    val remote = remoteByUsernameLower[u.username.trim().lowercase()]
+                    val needsPush = remote == null ||
+                        remote.first != u.passwordHash ||
+                        (u.email.isNotBlank() && remote.second != u.email) ||
+                        (u.phoneNumber.isNotBlank() && remote.third != u.phoneNumber)
+                    if (needsPush) {
+                        registerUserInD1(
+                            username = u.username,
+                            passwordHash = u.passwordHash,
+                            localUserId = u.id,
+                            preferencesManager = preferencesManager,
+                            email = u.email,
+                            phoneNumber = u.phoneNumber
+                        )
+                    }
+                }
+            }
+            if (ok) {
+                usersSyncedSessionDbs.add(db)
             }
         } catch (_: Exception) {
         }
@@ -1395,6 +1592,9 @@ class CloudflareSyncService(val context: Context) {
         val quadsCm = preferencesManager.bodyQuadsFlow.first()
         val calvesCm = preferencesManager.bodyCalvesFlow.first()
         val neckCm = preferencesManager.bodyNeckFlow.first()
+        val forearmsCm = preferencesManager.bodyForearmsFlow.first()
+        val wristsCm = preferencesManager.bodyWristsFlow.first()
+        val anklesCm = preferencesManager.bodyAnklesFlow.first()
         val activePreloadedMode = preferencesManager.activePreloadedModeFlow.first()
 
         val wD = parseNumericMetric(userWeight) ?: 0.0
@@ -1452,6 +1652,9 @@ class CloudflareSyncService(val context: Context) {
                 .put("quads_cm", quadsCm)
                 .put("calves_cm", calvesCm)
                 .put("neck_cm", neckCm)
+                .put("forearms_cm", forearmsCm)
+                .put("wrists_cm", wristsCm)
+                .put("ankles_cm", anklesCm)
             )
             put("app_preferences", JSONObject()
                 .put("theme_name", themeName)
@@ -1555,6 +1758,7 @@ class CloudflareSyncService(val context: Context) {
         databaseId: String,
         apiToken: String
     ): Boolean {
+        if (isTableInitialized(databaseId, "exercise_logs")) return true
         val createLogsSql = """
             CREATE TABLE IF NOT EXISTS exercise_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1582,12 +1786,28 @@ class CloudflareSyncService(val context: Context) {
             return false
         }
         // Best-effort unique index if table pre-existed without unique constraint on log_key
-        executeD1Query(
+        val (idxOk, _) = executeD1Query(
             accountId,
             databaseId,
             apiToken,
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_exercise_logs_key ON exercise_logs(log_key);"
         )
+        if (!idxOk) {
+            // One-time cleanup of duplicate log_key rows keeping newest id so ON CONFLICT(log_key) works without DELETE+INSERT fallback
+            executeD1Query(
+                accountId,
+                databaseId,
+                apiToken,
+                "DELETE FROM exercise_logs WHERE log_key IS NOT NULL AND id NOT IN (SELECT MAX(id) FROM exercise_logs WHERE log_key IS NOT NULL GROUP BY log_key);"
+            )
+            executeD1Query(
+                accountId,
+                databaseId,
+                apiToken,
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_exercise_logs_key ON exercise_logs(log_key);"
+            )
+        }
+        markTableInitialized(databaseId, "exercise_logs")
         return true
     }
 
@@ -1695,6 +1915,74 @@ class CloudflareSyncService(val context: Context) {
         }
     }
 
+    private fun buildExerciseSetKey(programEpochDays: Long, workoutSet: WorkoutSet): String {
+        return "$programEpochDays|${workoutSet.exerciseName.trim().lowercase()}|${workoutSet.orderIndex}"
+    }
+
+    private fun buildSetFingerprint(programEpochDays: Long, workoutSet: WorkoutSet): String {
+        val raw = buildString {
+            append(programEpochDays).append('|')
+            append(workoutSet.categoryId).append('|')
+            append(workoutSet.exerciseName.trim()).append('|')
+            append(workoutSet.targetSets).append('|')
+            append(workoutSet.targetReps).append('|')
+            append(workoutSet.isSuperSet).append('|')
+            append(workoutSet.completedSets).append('|')
+            append(workoutSet.completedReps).append('|')
+            append(workoutSet.completedWeightKg).append('|')
+            append(workoutSet.completedSetsJson).append('|')
+            append(workoutSet.orderIndex)
+        }
+        return sha256Short(raw)
+    }
+
+    private fun buildRowTrackKey(
+        programEpochDays: Long,
+        exerciseName: String,
+        orderIndex: Int,
+        setNumber: Int
+    ): String {
+        return "$programEpochDays|${exerciseName.trim().lowercase()}|$orderIndex|set_$setNumber"
+    }
+
+    private fun buildRowFingerprint(row: ExerciseLogRowPayload): String {
+        val raw = buildString {
+            append(row.userId).append('|')
+            append(row.programEpochDays).append('|')
+            append(row.categoryId).append('|')
+            append(row.exerciseName.trim()).append('|')
+            append(row.targetSets).append('|')
+            append(row.targetReps).append('|')
+            append(row.setNumber).append('|')
+            append(row.completedReps).append('|')
+            append(row.weightKg).append('|')
+            append(row.isSuperSet).append('|')
+            append(row.orderIndex)
+        }
+        return sha256Short(raw)
+    }
+
+    private fun parseHashMapJson(rawJson: String): MutableMap<String, String> {
+        val map = mutableMapOf<String, String>()
+        if (rawJson.isBlank()) return map
+        try {
+            val obj = JSONObject(rawJson)
+            val keys = obj.keys()
+            while (keys.hasNext()) {
+                val k = keys.next()
+                map[k] = obj.optString(k, "")
+            }
+        } catch (_: Exception) {
+        }
+        return map
+    }
+
+    private fun encodeHashMapJson(map: Map<String, String>): String {
+        val obj = JSONObject()
+        map.forEach { (k, v) -> obj.put(k, v) }
+        return obj.toString()
+    }
+
     private fun upsertExerciseLogRowsBatch(
         accountId: String,
         databaseId: String,
@@ -1702,8 +1990,8 @@ class CloudflareSyncService(val context: Context) {
         rows: List<ExerciseLogRowPayload>
     ): Boolean {
         if (rows.isEmpty()) return true
-        // 15 params per row -> chunk size 5 (75 params) stays safely below D1's 100-param limit
-        for (chunk in rows.chunked(5)) {
+        // 15 params per row -> chunk size 6 (90 params) stays safely below D1's 100-param limit
+        for (chunk in rows.chunked(6)) {
             val placeholders = chunk.joinToString(", ") { "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)" }
             val upsertSql = """
                 INSERT INTO exercise_logs (
@@ -1778,28 +2066,131 @@ class CloudflareSyncService(val context: Context) {
         databaseId: String,
         apiToken: String,
         userId: Int,
-        repository: WorkoutRepository
+        repository: WorkoutRepository,
+        preferencesManager: PreferencesManager? = null,
+        forceFullSync: Boolean = false
     ): Boolean {
-        if (!ensureExerciseLogsTable(accountId, databaseId, apiToken)) return false
         val user = repository.getUserById(userId)
         val username = user?.username ?: "Athlete #$userId"
         val programs = repository.getAllProgramsForUser(userId).first()
         val epochByProgramId = programs.associate { it.id to it.dateEpochDays }
         val allSets = repository.getAllSetsForUser(userId).first()
 
-        // Remove stale rows for this user so offline deletions also reconcile in D1
-        executeD1Query(
-            accountId, databaseId, apiToken,
-            "DELETE FROM exercise_logs WHERE LOWER(username) = LOWER(?) OR (user_id = ? AND (username IS NULL OR username = ''));",
-            JSONArray().put(username).put(userId)
-        )
-
-        val allRows = mutableListOf<ExerciseLogRowPayload>()
+        val currentEntries = linkedMapOf<String, Triple<String, Long, WorkoutSet>>()
+        val currentRowHashes = linkedMapOf<String, Pair<String, ExerciseLogRowPayload>>()
         allSets.forEach { set ->
             val epoch = epochByProgramId[set.programId] ?: return@forEach
-            allRows.addAll(buildExerciseLogRows(username, userId, epoch, set))
+            val key = buildExerciseSetKey(epoch, set)
+            val fp = buildSetFingerprint(epoch, set)
+            currentEntries[key] = Triple(fp, epoch, set)
+            buildExerciseLogRows(username, userId, epoch, set).forEach { r ->
+                val tk = buildRowTrackKey(epoch, set.exerciseName, set.orderIndex, r.setNumber)
+                currentRowHashes[tk] = buildRowFingerprint(r) to r
+            }
         }
-        return upsertExerciseLogRowsBatch(accountId, databaseId, apiToken, allRows)
+
+        val prevHashes = if (preferencesManager != null) {
+            parseHashMapJson(preferencesManager.getD1SyncedSetHashesJson(userId, databaseId))
+        } else emptyMap()
+        val prevRowHashes = if (preferencesManager != null) {
+            parseHashMapJson(preferencesManager.getD1SyncedRowHashesJson(userId, databaseId))
+        } else emptyMap()
+
+        val deletedKeys = if (!forceFullSync && prevHashes.isNotEmpty()) {
+            prevHashes.keys - currentEntries.keys
+        } else emptySet()
+
+        val changedEntries = currentEntries.filter { (key, entry) ->
+            forceFullSync || prevHashes[key] != entry.first
+        }
+
+        // Fast short-circuit: zero D1 queries when nothing changed
+        if (!forceFullSync && deletedKeys.isEmpty() && changedEntries.isEmpty()) {
+            return true
+        }
+
+        if (!ensureExerciseLogsTable(accountId, databaseId, apiToken)) return false
+
+        if (forceFullSync) {
+            executeD1Query(
+                accountId, databaseId, apiToken,
+                "DELETE FROM exercise_logs WHERE LOWER(username) = LOWER(?) OR (user_id = ? AND (username IS NULL OR username = ''));",
+                JSONArray().put(username).put(userId)
+            )
+        } else if (deletedKeys.isNotEmpty()) {
+            for (delKey in deletedKeys) {
+                val firstPipe = delKey.indexOf('|')
+                val lastPipe = delKey.lastIndexOf('|')
+                if (firstPipe > 0 && lastPipe > firstPipe) {
+                    val epoch = delKey.substring(0, firstPipe).toLongOrNull() ?: continue
+                    val exName = delKey.substring(firstPipe + 1, lastPipe)
+                    val orderIdx = delKey.substring(lastPipe + 1).toIntOrNull() ?: continue
+                    executeD1Query(
+                        accountId, databaseId, apiToken,
+                        "DELETE FROM exercise_logs WHERE (LOWER(username) = LOWER(?) OR (user_id = ? AND (username IS NULL OR username = ''))) AND program_epoch_days = ? AND LOWER(exercise_name) = LOWER(?) AND order_index = ?;",
+                        JSONArray().put(username).put(userId).put(epoch).put(exName).put(orderIdx)
+                    )
+                }
+            }
+        }
+
+        val rowsToUpsert = mutableListOf<ExerciseLogRowPayload>()
+        for ((key, entry) in changedEntries) {
+            val epoch = entry.second
+            val set = entry.third
+            val builtRows = buildExerciseLogRows(username, userId, epoch, set)
+            val prefix = "$epoch|${set.exerciseName.trim().lowercase()}|${set.orderIndex}|"
+            val prevExRowKeys = prevRowHashes.keys.filter { it.startsWith(prefix) }
+            val maxSetNum = builtRows.maxOfOrNull { it.setNumber } ?: 0
+
+            val needsStaleSetCleanup = !forceFullSync && prevHashes.containsKey(key) && (
+                prevExRowKeys.isEmpty() ||
+                    if (maxSetNum > 0) {
+                        prevExRowKeys.any { rk ->
+                            val sn = rk.substringAfterLast("set_", "0").toIntOrNull() ?: 0
+                            sn == 0 || sn > maxSetNum
+                        }
+                    } else {
+                        prevExRowKeys.any { rk ->
+                            val sn = rk.substringAfterLast("set_", "0").toIntOrNull() ?: 0
+                            sn > 0
+                        }
+                    }
+                )
+
+            if (needsStaleSetCleanup) {
+                if (maxSetNum > 0) {
+                    executeD1Query(
+                        accountId, databaseId, apiToken,
+                        "DELETE FROM exercise_logs WHERE LOWER(username) = LOWER(?) AND program_epoch_days = ? AND LOWER(exercise_name) = LOWER(?) AND order_index = ? AND (set_number = 0 OR set_number > ?);",
+                        JSONArray().put(username).put(epoch).put(set.exerciseName.trim()).put(set.orderIndex).put(maxSetNum)
+                    )
+                } else {
+                    executeD1Query(
+                        accountId, databaseId, apiToken,
+                        "DELETE FROM exercise_logs WHERE LOWER(username) = LOWER(?) AND program_epoch_days = ? AND LOWER(exercise_name) = LOWER(?) AND order_index = ? AND set_number > 0;",
+                        JSONArray().put(username).put(epoch).put(set.exerciseName.trim()).put(set.orderIndex)
+                    )
+                }
+            }
+
+            builtRows.forEach { r ->
+                val tk = buildRowTrackKey(epoch, set.exerciseName, set.orderIndex, r.setNumber)
+                val rowFp = buildRowFingerprint(r)
+                if (forceFullSync || prevRowHashes[tk] != rowFp) {
+                    rowsToUpsert.add(r)
+                }
+            }
+        }
+
+        val upsertOk = upsertExerciseLogRowsBatch(accountId, databaseId, apiToken, rowsToUpsert)
+        if (upsertOk && preferencesManager != null) {
+            val newMap = currentEntries.mapValues { it.value.first }
+            val newRowMap = currentRowHashes.mapValues { it.value.first }
+            preferencesManager.saveD1SyncedSetHashesJson(userId, databaseId, encodeHashMapJson(newMap))
+            preferencesManager.saveD1SyncedRowHashesJson(userId, databaseId, encodeHashMapJson(newRowMap))
+        }
+        return upsertOk
     }
 
     suspend fun pushExerciseLogToD1(
@@ -1807,7 +2198,8 @@ class CloudflareSyncService(val context: Context) {
         programEpochDays: Long,
         workoutSet: WorkoutSet,
         repository: WorkoutRepository,
-        preferencesManager: PreferencesManager
+        preferencesManager: PreferencesManager,
+        syncSnapshot: Boolean = true
     ): Boolean = syncMutex.withLock {
         withContext(Dispatchers.IO) {
             try {
@@ -1834,35 +2226,78 @@ class CloudflareSyncService(val context: Context) {
                 val rows = buildExerciseLogRows(username, userId, programEpochDays, workoutSet)
                 val maxSetNum = rows.maxOfOrNull { it.setNumber } ?: 0
 
-                if (maxSetNum > 0) {
-                    executeD1Query(
-                        acc, db, tok,
-                        "DELETE FROM exercise_logs WHERE LOWER(username) = LOWER(?) AND program_epoch_days = ? AND LOWER(exercise_name) = LOWER(?) AND order_index = ? AND (set_number = 0 OR set_number > ?);",
-                        JSONArray()
-                            .put(username)
-                            .put(programEpochDays)
-                            .put(workoutSet.exerciseName.trim())
-                            .put(workoutSet.orderIndex)
-                            .put(maxSetNum)
-                    )
+                val rowHashMap = parseHashMapJson(preferencesManager.getD1SyncedRowHashesJson(userId, db))
+                val prefix = "$programEpochDays|${workoutSet.exerciseName.trim().lowercase()}|${workoutSet.orderIndex}|"
+                val prevExRowKeys = rowHashMap.keys.filter { it.startsWith(prefix) }
+
+                val needsDelete = if (maxSetNum > 0) {
+                    prevExRowKeys.isEmpty() || prevExRowKeys.any { rk ->
+                        val sn = rk.substringAfterLast("set_", "0").toIntOrNull() ?: 0
+                        sn == 0 || sn > maxSetNum
+                    }
                 } else {
-                    executeD1Query(
-                        acc, db, tok,
-                        "DELETE FROM exercise_logs WHERE LOWER(username) = LOWER(?) AND program_epoch_days = ? AND LOWER(exercise_name) = LOWER(?) AND order_index = ? AND set_number > 0;",
-                        JSONArray()
-                            .put(username)
-                            .put(programEpochDays)
-                            .put(workoutSet.exerciseName.trim())
-                            .put(workoutSet.orderIndex)
-                    )
+                    prevExRowKeys.isEmpty() || prevExRowKeys.any { rk ->
+                        val sn = rk.substringAfterLast("set_", "0").toIntOrNull() ?: 0
+                        sn > 0
+                    }
                 }
 
-                val logsOk = upsertExerciseLogRowsBatch(acc, db, tok, rows)
-                val snapshotPayload = buildFullSnapshotJson(userId, repository, preferencesManager)
-                val snapshotOk = testAndSyncD1(acc, db, tok, snapshotPayload)
+                if (needsDelete) {
+                    if (maxSetNum > 0) {
+                        executeD1Query(
+                            acc, db, tok,
+                            "DELETE FROM exercise_logs WHERE LOWER(username) = LOWER(?) AND program_epoch_days = ? AND LOWER(exercise_name) = LOWER(?) AND order_index = ? AND (set_number = 0 OR set_number > ?);",
+                            JSONArray()
+                                .put(username)
+                                .put(programEpochDays)
+                                .put(workoutSet.exerciseName.trim())
+                                .put(workoutSet.orderIndex)
+                                .put(maxSetNum)
+                        )
+                    } else {
+                        executeD1Query(
+                            acc, db, tok,
+                            "DELETE FROM exercise_logs WHERE LOWER(username) = LOWER(?) AND program_epoch_days = ? AND LOWER(exercise_name) = LOWER(?) AND order_index = ? AND set_number > 0;",
+                            JSONArray()
+                                .put(username)
+                                .put(programEpochDays)
+                                .put(workoutSet.exerciseName.trim())
+                                .put(workoutSet.orderIndex)
+                        )
+                    }
+                }
+
+                // Only upsert set rows whose content actually changed (skips re-writing earlier sets)
+                val rowsToUpsert = rows.filter { r ->
+                    val tk = buildRowTrackKey(programEpochDays, workoutSet.exerciseName, workoutSet.orderIndex, r.setNumber)
+                    rowHashMap[tk] != buildRowFingerprint(r)
+                }
+
+                val logsOk = if (rowsToUpsert.isNotEmpty()) {
+                    upsertExerciseLogRowsBatch(acc, db, tok, rowsToUpsert)
+                } else true
+
+                if (logsOk) {
+                    val hashMap = parseHashMapJson(preferencesManager.getD1SyncedSetHashesJson(userId, db))
+                    hashMap[buildExerciseSetKey(programEpochDays, workoutSet)] = buildSetFingerprint(programEpochDays, workoutSet)
+                    preferencesManager.saveD1SyncedSetHashesJson(userId, db, encodeHashMapJson(hashMap))
+
+                    prevExRowKeys.forEach { rowHashMap.remove(it) }
+                    rows.forEach { r ->
+                        val tk = buildRowTrackKey(programEpochDays, workoutSet.exerciseName, workoutSet.orderIndex, r.setNumber)
+                        rowHashMap[tk] = buildRowFingerprint(r)
+                    }
+                    preferencesManager.saveD1SyncedRowHashesJson(userId, db, encodeHashMapJson(rowHashMap))
+                }
+
+                val snapshotOk = if (syncSnapshot) {
+                    saveSnapshotIfChanged(userId, repository, preferencesManager, acc, db, tok)
+                } else true
 
                 if (logsOk && snapshotOk) {
-                    preferencesManager.setPendingD1Upload(false)
+                    if (syncSnapshot) {
+                        preferencesManager.setPendingD1Upload(false)
+                    }
                     preferencesManager.saveLastD1SyncTime(System.currentTimeMillis())
                     preferencesManager.saveLastD1Error("")
                     true
@@ -1883,7 +2318,8 @@ class CloudflareSyncService(val context: Context) {
         exerciseName: String?,
         orderIndex: Int?,
         repository: WorkoutRepository,
-        preferencesManager: PreferencesManager
+        preferencesManager: PreferencesManager,
+        syncSnapshot: Boolean = true
     ): Boolean = syncMutex.withLock {
         withContext(Dispatchers.IO) {
             try {
@@ -1928,11 +2364,30 @@ class CloudflareSyncService(val context: Context) {
                     ).first
                 }
 
-                val snapshotPayload = buildFullSnapshotJson(userId, repository, preferencesManager)
-                val snapshotOk = testAndSyncD1(acc, db, tok, snapshotPayload)
+                if (deleteOk) {
+                    val hashMap = parseHashMapJson(preferencesManager.getD1SyncedSetHashesJson(userId, db))
+                    val rowHashMap = parseHashMapJson(preferencesManager.getD1SyncedRowHashesJson(userId, db))
+                    if (!exerciseName.isNullOrBlank() && orderIndex != null) {
+                        hashMap.remove("$programEpochDays|${exerciseName.trim().lowercase()}|$orderIndex")
+                        val rowPrefix = "$programEpochDays|${exerciseName.trim().lowercase()}|$orderIndex|"
+                        rowHashMap.keys.filter { it.startsWith(rowPrefix) }.forEach { rowHashMap.remove(it) }
+                    } else {
+                        val prefix = "$programEpochDays|"
+                        hashMap.keys.filter { it.startsWith(prefix) }.forEach { hashMap.remove(it) }
+                        rowHashMap.keys.filter { it.startsWith(prefix) }.forEach { rowHashMap.remove(it) }
+                    }
+                    preferencesManager.saveD1SyncedSetHashesJson(userId, db, encodeHashMapJson(hashMap))
+                    preferencesManager.saveD1SyncedRowHashesJson(userId, db, encodeHashMapJson(rowHashMap))
+                }
+
+                val snapshotOk = if (syncSnapshot) {
+                    saveSnapshotIfChanged(userId, repository, preferencesManager, acc, db, tok)
+                } else true
 
                 if (deleteOk && snapshotOk) {
-                    preferencesManager.setPendingD1Upload(false)
+                    if (syncSnapshot) {
+                        preferencesManager.setPendingD1Upload(false)
+                    }
                     preferencesManager.saveLastD1SyncTime(System.currentTimeMillis())
                     preferencesManager.saveLastD1Error("")
                     true
@@ -1953,33 +2408,65 @@ class CloudflareSyncService(val context: Context) {
         accountId: String,
         databaseId: String,
         apiToken: String,
-        repository: WorkoutRepository
+        repository: WorkoutRepository,
+        preferencesManager: PreferencesManager? = null
     ): Int = withContext(Dispatchers.IO) {
         try {
             if (!ensureExerciseLogsTable(accountId, databaseId, apiToken)) return@withContext 0
 
-            val selectSql = """
-                SELECT log_key, user_id, username, program_epoch_days, category_id,
-                       exercise_name, target_sets, target_reps, set_number, completed_sets,
-                       completed_reps, weight_kg, is_super_set, order_index, logged_at
-                FROM exercise_logs
-                WHERE LOWER(username) = LOWER(?) OR (user_id = ? AND (username IS NULL OR username = ''))
-                ORDER BY program_epoch_days ASC, order_index ASC, set_number ASC;
-            """.trimIndent()
-            val (ok, resp) = executeD1Query(
-                accountId, databaseId, apiToken, selectSql,
-                JSONArray().put(username).put(userId)
-            )
+            val hasLocalSets = repository.getAllSetsForUser(userId).first().isNotEmpty()
+            val lastPullTs = preferencesManager?.getD1LastLogsPullTs(userId, databaseId) ?: 0L
+            val useIncremental = hasLocalSets && lastPullTs > 0L
+
+            val (ok, resp) = if (useIncremental) {
+                val recentEpoch = (System.currentTimeMillis() / 86_400_000L) - 7L
+                val selectSql = """
+                    SELECT log_key, user_id, username, program_epoch_days, category_id,
+                           exercise_name, target_sets, target_reps, set_number, completed_sets,
+                           completed_reps, weight_kg, is_super_set, order_index, logged_at
+                    FROM exercise_logs
+                    WHERE (LOWER(username) = LOWER(?) OR (user_id = ? AND (username IS NULL OR username = '')))
+                      AND (logged_at > ? OR program_epoch_days >= ?)
+                    ORDER BY program_epoch_days ASC, order_index ASC, set_number ASC
+                    LIMIT 250;
+                """.trimIndent()
+                executeD1Query(
+                    accountId, databaseId, apiToken, selectSql,
+                    JSONArray().put(username).put(userId).put(lastPullTs).put(recentEpoch)
+                )
+            } else {
+                val selectSql = """
+                    SELECT log_key, user_id, username, program_epoch_days, category_id,
+                           exercise_name, target_sets, target_reps, set_number, completed_sets,
+                           completed_reps, weight_kg, is_super_set, order_index, logged_at
+                    FROM exercise_logs
+                    WHERE LOWER(username) = LOWER(?) OR (user_id = ? AND (username IS NULL OR username = ''))
+                    ORDER BY logged_at DESC, program_epoch_days DESC, order_index ASC, set_number ASC
+                    LIMIT 500;
+                """.trimIndent()
+                executeD1Query(
+                    accountId, databaseId, apiToken, selectSql,
+                    JSONArray().put(username).put(userId)
+                )
+            }
             if (!ok || resp == null) return@withContext 0
 
             val rows = resp.optJSONArray("result")?.optJSONObject(0)?.optJSONArray("results")
                 ?: return@withContext 0
-            if (rows.length() == 0) return@withContext 0
+            if (rows.length() == 0) {
+                if (preferencesManager != null && lastPullTs == 0L) {
+                    preferencesManager.saveD1LastLogsPullTs(userId, databaseId, System.currentTimeMillis())
+                }
+                return@withContext 0
+            }
 
             data class ExerciseGroupKey(val epochDays: Long, val exNameLower: String, val orderIndex: Int)
             val grouped = linkedMapOf<ExerciseGroupKey, MutableList<JSONObject>>()
+            var maxSeenLoggedAt = lastPullTs
             for (i in 0 until rows.length()) {
                 val r = rows.optJSONObject(i) ?: continue
+                val rowTs = r.optLong("logged_at", 0L)
+                if (rowTs > maxSeenLoggedAt) maxSeenLoggedAt = rowTs
                 val epoch = r.optLong("program_epoch_days", 0L)
                 val exName = r.optString("exercise_name", "").trim()
                 if (epoch <= 0L || exName.isBlank()) continue
@@ -1988,6 +2475,13 @@ class CloudflareSyncService(val context: Context) {
             }
 
             var mergedCount = 0
+            val syncedHashes = if (preferencesManager != null) {
+                parseHashMapJson(preferencesManager.getD1SyncedSetHashesJson(userId, databaseId))
+            } else null
+            val syncedRowHashes = if (preferencesManager != null) {
+                parseHashMapJson(preferencesManager.getD1SyncedRowHashesJson(userId, databaseId))
+            } else null
+
             for ((key, groupRows) in grouped) {
                 val firstRow = groupRows.first()
                 val exName = firstRow.optString("exercise_name", "").trim()
@@ -2029,40 +2523,65 @@ class CloudflareSyncService(val context: Context) {
                 val lastInfo = completedInfos.lastOrNull()
 
                 if (matchingLocal == null) {
-                    repository.insertSet(
-                        WorkoutSet(
-                            id = 0,
-                            programId = localProgramId,
-                            categoryId = categoryId,
-                            exerciseName = exName,
-                            targetSets = targetSets,
-                            targetReps = targetReps,
-                            isSuperSet = isSuperSet,
-                            completedReps = lastInfo?.reps ?: 0,
-                            completedSets = completedInfos.size,
-                            orderIndex = key.orderIndex,
-                            timestamp = maxLoggedAt,
-                            completedWeightKg = lastInfo?.weightKg ?: 0.0,
-                            completedSetsJson = completedJson
-                        )
+                    val inserted = WorkoutSet(
+                        id = 0,
+                        programId = localProgramId,
+                        categoryId = categoryId,
+                        exerciseName = exName,
+                        targetSets = targetSets,
+                        targetReps = targetReps,
+                        isSuperSet = isSuperSet,
+                        completedReps = lastInfo?.reps ?: 0,
+                        completedSets = completedInfos.size,
+                        orderIndex = key.orderIndex,
+                        timestamp = maxLoggedAt,
+                        completedWeightKg = lastInfo?.weightKg ?: 0.0,
+                        completedSetsJson = completedJson
                     )
+                    repository.insertSet(inserted)
+                    syncedHashes?.put(buildExerciseSetKey(key.epochDays, inserted), buildSetFingerprint(key.epochDays, inserted))
+                    if (syncedRowHashes != null) {
+                        buildExerciseLogRows(username, userId, key.epochDays, inserted).forEach { r ->
+                            syncedRowHashes[buildRowTrackKey(key.epochDays, inserted.exerciseName, inserted.orderIndex, r.setNumber)] = buildRowFingerprint(r)
+                        }
+                    }
                     mergedCount++
                 } else {
                     val localTs = matchingLocal.timestamp ?: 0L
                     val localSetCount = parseCompletedSetInfos(matchingLocal).size
                     if (maxLoggedAt > localTs || (completedInfos.size > localSetCount && completedJson.isNotBlank())) {
-                        repository.insertSet(
-                            matchingLocal.copy(
-                                targetSets = targetSets,
-                                targetReps = targetReps,
-                                completedReps = lastInfo?.reps ?: 0,
-                                completedSets = completedInfos.size,
-                                completedWeightKg = lastInfo?.weightKg ?: 0.0,
-                                completedSetsJson = completedJson,
-                                timestamp = maxLoggedAt
-                            )
+                        val updated = matchingLocal.copy(
+                            targetSets = targetSets,
+                            targetReps = targetReps,
+                            completedReps = lastInfo?.reps ?: 0,
+                            completedSets = completedInfos.size,
+                            completedWeightKg = lastInfo?.weightKg ?: 0.0,
+                            completedSetsJson = completedJson,
+                            timestamp = maxLoggedAt
                         )
+                        repository.insertSet(updated)
+                        syncedHashes?.put(buildExerciseSetKey(key.epochDays, updated), buildSetFingerprint(key.epochDays, updated))
+                        if (syncedRowHashes != null) {
+                            val rowPrefix = "${key.epochDays}|${updated.exerciseName.trim().lowercase()}|${updated.orderIndex}|"
+                            syncedRowHashes.keys.filter { it.startsWith(rowPrefix) }.forEach { syncedRowHashes.remove(it) }
+                            buildExerciseLogRows(username, userId, key.epochDays, updated).forEach { r ->
+                                syncedRowHashes[buildRowTrackKey(key.epochDays, updated.exerciseName, updated.orderIndex, r.setNumber)] = buildRowFingerprint(r)
+                            }
+                        }
                         mergedCount++
+                    }
+                }
+            }
+
+            if (preferencesManager != null) {
+                val nextTs = if (maxSeenLoggedAt > lastPullTs) maxSeenLoggedAt else System.currentTimeMillis()
+                preferencesManager.saveD1LastLogsPullTs(userId, databaseId, nextTs)
+                if (mergedCount > 0) {
+                    if (syncedHashes != null) {
+                        preferencesManager.saveD1SyncedSetHashesJson(userId, databaseId, encodeHashMapJson(syncedHashes))
+                    }
+                    if (syncedRowHashes != null) {
+                        preferencesManager.saveD1SyncedRowHashesJson(userId, databaseId, encodeHashMapJson(syncedRowHashes))
                     }
                 }
             }
@@ -2078,6 +2597,7 @@ class CloudflareSyncService(val context: Context) {
         databaseId: String,
         apiToken: String
     ): Boolean {
+        if (isTableInitialized(databaseId, "workout_profiles_cloud")) return true
         val sql = """
             CREATE TABLE IF NOT EXISTS workout_profiles_cloud (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2095,6 +2615,7 @@ class CloudflareSyncService(val context: Context) {
             lastStatementError = extractD1Error(resp) ?: "Failed to initialize workout_profiles_cloud table"
             return false
         }
+        markTableInitialized(databaseId, "workout_profiles_cloud")
         return true
     }
 
@@ -2141,6 +2662,11 @@ class CloudflareSyncService(val context: Context) {
                 .put(profile.exercisesJson)
                 .put(now)
             val (ok, _) = executeD1Query(acc, db, tok, sql, params)
+            if (ok) {
+                val hashMap = parseHashMapJson(preferencesManager.getD1SyncedProfileHashesJson(db))
+                hashMap[key] = sha256Short("${profile.notes}|${profile.exercisesJson}")
+                preferencesManager.saveD1SyncedProfileHashesJson(db, encodeHashMapJson(hashMap))
+            }
             ok
         } catch (_: Exception) {
             false
@@ -2178,10 +2704,46 @@ class CloudflareSyncService(val context: Context) {
                 .put(profileName.trim())
                 .put(now)
             val (ok, _) = executeD1Query(acc, db, tok, sql, params)
+            if (ok) {
+                val hashMap = parseHashMapJson(preferencesManager.getD1SyncedProfileHashesJson(db))
+                hashMap.remove(key)
+                preferencesManager.saveD1SyncedProfileHashesJson(db, encodeHashMapJson(hashMap))
+            }
             ok
         } catch (_: Exception) {
             false
         }
+    }
+
+    private suspend fun pushChangedWorkoutProfilesToD1(
+        profiles: List<WorkoutProfile>,
+        usersById: Map<Int, User>,
+        fallbackUsername: String,
+        preferencesManager: PreferencesManager,
+        databaseId: String,
+        forceWrite: Boolean = false
+    ): Int {
+        if (profiles.isEmpty()) return 0
+        val syncedMap = parseHashMapJson(preferencesManager.getD1SyncedProfileHashesJson(databaseId))
+        var pushed = 0
+        var mapDirty = false
+        for (prof in profiles) {
+            val ownerName = usersById[prof.userId]?.username?.ifBlank { fallbackUsername } ?: fallbackUsername
+            if (ownerName.isBlank()) continue
+            val key = buildCloudProfileKey(ownerName, prof.name)
+            val hash = sha256Short("${prof.notes}|${prof.exercisesJson}")
+            if (forceWrite || syncedMap[key] != hash) {
+                if (pushWorkoutProfileToD1(ownerName, prof, preferencesManager)) {
+                    syncedMap[key] = hash
+                    mapDirty = true
+                    pushed++
+                }
+            }
+        }
+        if (mapDirty) {
+            preferencesManager.saveD1SyncedProfileHashesJson(databaseId, encodeHashMapJson(syncedMap))
+        }
+        return pushed
     }
 
     suspend fun fetchAllSharedCloudProfiles(
@@ -2197,7 +2759,7 @@ class CloudflareSyncService(val context: Context) {
                 acc,
                 db,
                 tok,
-                "SELECT profile_key, username, profile_name, notes, exercises_json, is_deleted, updated_at FROM workout_profiles_cloud WHERE is_deleted = 0 ORDER BY updated_at DESC LIMIT 200;"
+                "SELECT profile_key, username, profile_name, notes, exercises_json, is_deleted, updated_at FROM workout_profiles_cloud WHERE is_deleted = 0 ORDER BY updated_at DESC LIMIT 50;"
             )
             if (!ok || resp == null) return@withContext emptyList()
             val rows = resp.optJSONArray("result")?.optJSONObject(0)?.optJSONArray("results") ?: return@withContext emptyList()
@@ -2240,7 +2802,7 @@ class CloudflareSyncService(val context: Context) {
                     acc,
                     db,
                     tok,
-                    "SELECT profile_key, username, profile_name, notes, exercises_json, is_deleted, updated_at FROM workout_profiles_cloud WHERE LOWER(username) = LOWER(?) ORDER BY updated_at DESC;",
+                    "SELECT profile_key, username, profile_name, notes, exercises_json, is_deleted, updated_at FROM workout_profiles_cloud WHERE LOWER(username) = LOWER(?) ORDER BY updated_at DESC LIMIT 50;",
                     JSONArray().put(username.trim())
                 )
             } else {
@@ -2248,7 +2810,7 @@ class CloudflareSyncService(val context: Context) {
                     acc,
                     db,
                     tok,
-                    "SELECT profile_key, username, profile_name, notes, exercises_json, is_deleted, updated_at FROM workout_profiles_cloud ORDER BY updated_at DESC LIMIT 200;"
+                    "SELECT profile_key, username, profile_name, notes, exercises_json, is_deleted, updated_at FROM workout_profiles_cloud ORDER BY updated_at DESC LIMIT 50;"
                 )
             }
             if (!ok || resp == null) return@withContext 0
@@ -2501,21 +3063,22 @@ class CloudflareSyncService(val context: Context) {
                 mergedCount += syncWorkoutProfilesForUserWithD1(activeUserId, activeUsername, repository, preferencesManager)
             }
 
-            // 4. Push local profiles in background / batch
+            // 4. Push only local profiles that are missing or changed in workout_profiles_cloud
             var pushedCount = 0
-            val remoteKeys = remoteProfiles.map { it.profileKey }.toSet()
+            val remoteByKey = remoteProfiles.associateBy { it.profileKey }
             for (profile in repository.getAllWorkoutProfiles()) {
                 val ownerUsername = usersById[profile.userId]?.username.orEmpty()
                 val key = buildCloudProfileKey(ownerUsername, profile.name)
-                if (key !in remoteKeys) {
+                val remote = remoteByKey[key]
+                val needsPush = remote == null ||
+                    remote.notes != profile.notes ||
+                    remote.exercisesJson != profile.exercisesJson
+                if (needsPush) {
                     if (pushWorkoutProfileToD1(ownerUsername, profile, preferencesManager)) {
                         pushedCount++
                     }
                 }
             }
-
-            // 5. Quick D1 deduplication
-            duplicatesRemoved += removeDuplicateCloudProfiles(repository, preferencesManager)
 
             CloudProfileSyncSummary(
                 pushedCount = pushedCount,
@@ -2528,10 +3091,42 @@ class CloudflareSyncService(val context: Context) {
         }
     }
 
+    private suspend fun deduplicateLocalSetsAndProfiles(repository: WorkoutRepository): Int {
+        var removedCount = 0
+        try {
+            val seenProfiles = mutableSetOf<String>()
+            for (prof in repository.getAllWorkoutProfiles().sortedByDescending { it.id }) {
+                val sig = buildProfileExerciseSignature(prof.exercisesJson) ?: continue
+                if (!seenProfiles.add("${prof.userId}|$sig")) {
+                    repository.deleteWorkoutProfileById(prof.id)
+                    removedCount++
+                }
+            }
+            val users = repository.getAllUsers()
+            for (u in users) {
+                val programs = repository.getAllProgramsForUser(u.id).first()
+                for (prog in programs) {
+                    val sets = repository.getSetsForProgram(prog.id).first().sortedByDescending { it.id }
+                    val seenSetKeys = mutableSetOf<String>()
+                    for (s in sets) {
+                        val key = "${s.programId}|${s.exerciseName.trim().lowercase()}|${s.targetSets}|${s.targetReps}|${s.completedSets}|${s.completedReps}|${s.completedWeightKg}|${s.orderIndex}"
+                        if (!seenSetKeys.add(key)) {
+                            repository.deleteSetById(s.id)
+                            removedCount++
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {
+        }
+        return removedCount
+    }
+
     suspend fun syncAllUserDataToD1(
         userId: Int,
         repository: WorkoutRepository,
-        preferencesManager: PreferencesManager
+        preferencesManager: PreferencesManager,
+        forceFullSync: Boolean = false
     ): Boolean = syncMutex.withLock {
         withContext(Dispatchers.IO) {
             try {
@@ -2548,46 +3143,68 @@ class CloudflareSyncService(val context: Context) {
                     return@withContext false
                 }
 
-                syncRegisteredUsersWithD1(repository, preferencesManager)
+                preloadPersistentSchemaCache(acc, db, tok, preferencesManager)
+                deduplicateLocalSetsAndProfiles(repository)
+                syncRegisteredUsersWithD1(repository, preferencesManager, force = forceFullSync)
+
                 val allUsers = repository.getAllUsers()
                 val usersById = allUsers.associateBy { it.id }
-
                 val user = repository.getUserById(userId)
+
                 if (user != null) {
-                    registerUserInD1(
-                        username = user.username,
-                        passwordHash = user.passwordHash,
-                        localUserId = user.id,
+                    val userKey = "$db:${user.username.trim().lowercase()}"
+                    val userHash = sha256Short("${user.passwordHash}|${user.email}|${user.phoneNumber}")
+                    if (forceFullSync || lastPushedUserHashByKey[userKey] != userHash) {
+                        if (registerUserInD1(
+                                username = user.username,
+                                passwordHash = user.passwordHash,
+                                localUserId = user.id,
+                                preferencesManager = preferencesManager,
+                                email = user.email,
+                                phoneNumber = user.phoneNumber
+                            )
+                        ) {
+                            lastPushedUserHashByKey[userKey] = userHash
+                        }
+                    }
+                }
+
+                // Sync only active user's workout profiles (or all on explicit full sync) and skip unchanged profiles
+                val targetProfiles = if (forceFullSync) {
+                    repository.getAllWorkoutProfiles()
+                } else {
+                    repository.getAllWorkoutProfilesForUser(userId).first()
+                }
+                if (targetProfiles.isNotEmpty()) {
+                    ensureWorkoutProfilesCloudTable(acc, db, tok)
+                    pushChangedWorkoutProfilesToD1(
+                        profiles = targetProfiles,
+                        usersById = usersById,
+                        fallbackUsername = user?.username.orEmpty(),
                         preferencesManager = preferencesManager,
-                        email = user.email,
-                        phoneNumber = user.phoneNumber
+                        databaseId = db,
+                        forceWrite = forceFullSync
                     )
                 }
 
-                // Ensure normalized workout_profiles_cloud has ALL created profiles on the phone
-                ensureWorkoutProfilesCloudTable(acc, db, tok)
-                repository.getAllWorkoutProfiles().forEach { prof ->
-                    val ownerName = usersById[prof.userId]?.username ?: user?.username.orEmpty()
-                    if (ownerName.isNotBlank()) {
-                        pushWorkoutProfileToD1(ownerName, prof, preferencesManager)
-                    }
-                }
-
-                // Push exercise logs for all registered users, and full body+workout snapshot for the active userId
-                var allLogsSynced = true
-                val otherUsers = allUsers.filter { it.id != userId }
-                otherUsers.forEach { otherUser ->
-                    if (!syncAllSetsToExerciseLogsInternal(acc, db, tok, otherUser.id, repository)) {
-                        allLogsSynced = false
-                    }
-                }
-
-                val logsSynced = syncAllSetsToExerciseLogsInternal(acc, db, tok, userId, repository) && allLogsSynced
-                val payload = buildFullSnapshotJson(userId, repository, preferencesManager)
-                val uploaded = testAndSyncD1(acc, db, tok, payload)
-
-                removeDuplicateExerciseLogsAndLocalSets(acc, db, tok, repository)
-                removeDuplicateCloudProfiles(repository, preferencesManager)
+                val logsSynced = syncAllSetsToExerciseLogsInternal(
+                    accountId = acc,
+                    databaseId = db,
+                    apiToken = tok,
+                    userId = userId,
+                    repository = repository,
+                    preferencesManager = preferencesManager,
+                    forceFullSync = forceFullSync
+                )
+                val uploaded = saveSnapshotIfChanged(
+                    userId = userId,
+                    repository = repository,
+                    preferencesManager = preferencesManager,
+                    accountId = acc,
+                    databaseId = db,
+                    apiToken = tok,
+                    forceWrite = forceFullSync
+                )
 
                 if (uploaded && logsSynced) {
                     preferencesManager.setPendingD1Upload(false)
@@ -2615,15 +3232,42 @@ class CloudflareSyncService(val context: Context) {
         apiToken: String
     ): D1FetchResult = withContext(Dispatchers.IO) {
         try {
-            val createTableSql =
-                "CREATE TABLE IF NOT EXISTS workout_sync (id INTEGER PRIMARY KEY AUTOINCREMENT, data TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP);"
-            val (tableOk, tableResp) = executeD1Query(accountId, databaseId, apiToken, createTableSql)
-            if (!tableOk) {
-                val errMsg = extractD1Error(tableResp) ?: "Could not connect to Cloudflare D1."
-                return@withContext D1FetchResult(success = false, errorMessage = errMsg)
+            if (!ensureWorkoutSyncTable(accountId, databaseId, apiToken)) {
+                return@withContext D1FetchResult(
+                    success = false,
+                    errorMessage = lastStatementError ?: "Could not connect to Cloudflare D1."
+                )
             }
 
-            val selectSql = "SELECT data, timestamp FROM workout_sync ORDER BY id DESC LIMIT 100;"
+            // Fast 1-row lookup by indexed user_key first
+            val cleanKey = username.trim().lowercase().ifBlank {
+                if (userId > 0) "user_$userId" else "default"
+            }
+            val (directOk, directResp) = executeD1Query(
+                accountId,
+                databaseId,
+                apiToken,
+                "SELECT data, timestamp FROM workout_sync WHERE user_key = ? ORDER BY id DESC LIMIT 1;",
+                JSONArray().put(cleanKey)
+            )
+            if (directOk && directResp != null) {
+                val directRows = directResp.optJSONArray("result")?.optJSONObject(0)?.optJSONArray("results")
+                if (directRows != null && directRows.length() > 0) {
+                    val row = directRows.optJSONObject(0)
+                    val dataStr = row?.optString("data", "").orEmpty()
+                    val ts = row?.optString("timestamp", "").orEmpty()
+                    if (dataStr.isNotBlank()) {
+                        return@withContext D1FetchResult(
+                            success = true,
+                            dataJson = dataStr,
+                            timestamp = ts.ifBlank { null }
+                        )
+                    }
+                }
+            }
+
+            // Fallback scan of only the 15 most recent rows for legacy rows saved before user_key existed
+            val selectSql = "SELECT data, timestamp FROM workout_sync ORDER BY id DESC LIMIT 15;"
             val (selectOk, selectResp) = executeD1Query(accountId, databaseId, apiToken, selectSql)
             if (!selectOk || selectResp == null) {
                 return@withContext D1FetchResult(success = false, errorMessage = "Failed to read Cloudflare D1.")
@@ -2774,87 +3418,131 @@ class CloudflareSyncService(val context: Context) {
                     return@withContext false
                 }
 
+                // Cooldown to prevent redundant double-sync when LaunchedEffect and NetworkCallback both fire on startup
+                val cooldownKey = "$db:$userId"
+                val nowMs = System.currentTimeMillis()
+                val lastRunMs = lastReconnectSyncTimeByKey[cooldownKey] ?: 0L
+                if (!hasPendingUpload && nowMs - lastRunMs < 20_000L) {
+                    return@withContext true
+                }
+
+                preloadPersistentSchemaCache(acc, db, tok, preferencesManager)
+                deduplicateLocalSetsAndProfiles(repository)
                 syncRegisteredUsersWithD1(repository, preferencesManager)
+
                 val allUsers = repository.getAllUsers()
+                val usersById = allUsers.associateBy { it.id }
 
-                // 1. Remove any duplicate logs & duplicate profiles before/around sync
-                removeDuplicateExerciseLogsAndLocalSets(acc, db, tok, repository)
-                removeDuplicateCloudProfiles(repository, preferencesManager)
-
-                // 2. Always push queued offline edits first if pending!
+                // 1. Always push queued offline edits for the active user first if pending!
                 if (hasPendingUpload && userId != -1) {
-                    val payload = buildFullSnapshotJson(userId, repository, preferencesManager)
                     val user = repository.getUserById(userId)
                     if (user != null) {
-                        registerUserInD1(
-                            username = user.username,
-                            passwordHash = user.passwordHash,
-                            localUserId = user.id,
-                            preferencesManager = preferencesManager,
-                            email = user.email,
-                            phoneNumber = user.phoneNumber
-                        )
-                    }
-                    ensureWorkoutProfilesCloudTable(acc, db, tok)
-                    val usersById = allUsers.associateBy { it.id }
-                    repository.getAllWorkoutProfiles().forEach { prof ->
-                        val ownerName = usersById[prof.userId]?.username ?: user?.username.orEmpty()
-                        pushWorkoutProfileToD1(ownerName, prof, preferencesManager)
-                    }
-                    var allLogsOk = syncAllSetsToExerciseLogsInternal(acc, db, tok, userId, repository)
-                    allUsers.filter { it.id != userId }.forEach { otherUser ->
-                        if (!syncAllSetsToExerciseLogsInternal(acc, db, tok, otherUser.id, repository)) {
-                            allLogsOk = false
+                        val userKey = "$db:${user.username.trim().lowercase()}"
+                        val userHash = sha256Short("${user.passwordHash}|${user.email}|${user.phoneNumber}")
+                        if (lastPushedUserHashByKey[userKey] != userHash) {
+                            if (registerUserInD1(
+                                    username = user.username,
+                                    passwordHash = user.passwordHash,
+                                    localUserId = user.id,
+                                    preferencesManager = preferencesManager,
+                                    email = user.email,
+                                    phoneNumber = user.phoneNumber
+                                )
+                            ) {
+                                lastPushedUserHashByKey[userKey] = userHash
+                            }
                         }
                     }
-                    val uploaded = testAndSyncD1(acc, db, tok, payload)
-                    removeDuplicateExerciseLogsAndLocalSets(acc, db, tok, repository)
-                    removeDuplicateCloudProfiles(repository, preferencesManager)
-                    if (uploaded && allLogsOk) {
+
+                    val userProfiles = repository.getAllWorkoutProfilesForUser(userId).first()
+                    if (userProfiles.isNotEmpty()) {
+                        ensureWorkoutProfilesCloudTable(acc, db, tok)
+                        pushChangedWorkoutProfilesToD1(
+                            profiles = userProfiles,
+                            usersById = usersById,
+                            fallbackUsername = user?.username.orEmpty(),
+                            preferencesManager = preferencesManager,
+                            databaseId = db
+                        )
+                    }
+
+                    val logsOk = syncAllSetsToExerciseLogsInternal(
+                        accountId = acc,
+                        databaseId = db,
+                        apiToken = tok,
+                        userId = userId,
+                        repository = repository,
+                        preferencesManager = preferencesManager
+                    )
+                    val uploaded = saveSnapshotIfChanged(userId, repository, preferencesManager, acc, db, tok)
+
+                    if (uploaded && logsOk) {
                         preferencesManager.setPendingD1Upload(false)
                         preferencesManager.setPendingD1Download(false)
                         preferencesManager.saveLastD1SyncTime(System.currentTimeMillis())
                         preferencesManager.saveLastD1Error("")
+                        lastReconnectSyncTimeByKey[cooldownKey] = System.currentTimeMillis()
                     } else {
                         preferencesManager.saveLastD1Error(lastStatementError ?: "D1 upload failed")
                     }
-                    return@withContext uploaded && allLogsOk
+                    return@withContext uploaded && logsOk
                 }
 
-                // 3. Two-way sync of logs, snapshots & profiles for active user and all registered users
+                // 2. Active-user-only incremental two-way sync of snapshot, logs & profiles
                 var changedCount = 0
-                val targetUsers = if (allUsers.isNotEmpty()) allUsers else {
-                    if (userId != -1) listOfNotNull(repository.getUserById(userId)) else emptyList()
+                val activeUser = if (userId != -1) {
+                    repository.getUserById(userId) ?: allUsers.firstOrNull { it.id == userId }
+                } else {
+                    allUsers.firstOrNull()
                 }
-                for (u in targetUsers) {
-                    val isActiveUser = (u.id == userId)
-                    val fetchResult = fetchLatestForUserFromD1(u.username, u.id, acc, db, tok)
+
+                if (activeUser != null) {
+                    val fetchResult = fetchLatestForUserFromD1(activeUser.username, activeUser.id, acc, db, tok)
                     if (fetchResult.success && fetchResult.dataJson != null) {
-                        val restoreSummary = restoreSnapshotToLocal(
-                            payloadJson = fetchResult.dataJson,
-                            userId = u.id,
-                            repository = repository,
-                            preferencesManager = preferencesManager,
-                            applyGlobalPrefs = isActiveUser
-                        )
-                        if (restoreSummary.success) changedCount++
+                        val remoteHash = computeSnapshotContentHash(fetchResult.dataJson)
+                        val prevHash = preferencesManager.getD1LastSnapshotHash(activeUser.id, db)
+                        if (remoteHash != prevHash || prevHash.isBlank()) {
+                            val restoreSummary = restoreSnapshotToLocal(
+                                payloadJson = fetchResult.dataJson,
+                                userId = activeUser.id,
+                                repository = repository,
+                                preferencesManager = preferencesManager,
+                                applyGlobalPrefs = true
+                            )
+                            if (restoreSummary.success) {
+                                // Clear any pending upload flag set while writing restored preferences locally
+                                preferencesManager.setPendingD1Upload(false)
+                                preferencesManager.saveD1LastSnapshotHash(activeUser.id, db, remoteHash)
+                                changedCount++
+                            }
+                        }
                     }
-                    changedCount += retrieveExerciseLogsFromD1(u.id, u.username, acc, db, tok, repository)
-                    changedCount += syncWorkoutProfilesForUserWithD1(u.id, u.username, repository, preferencesManager)
-                    syncAllSetsToExerciseLogsInternal(acc, db, tok, u.id, repository)
-                    if (isActiveUser) {
-                        val snapshotPayload = buildFullSnapshotJson(u.id, repository, preferencesManager)
-                        testAndSyncD1(acc, db, tok, snapshotPayload)
-                    }
+
+                    changedCount += retrieveExerciseLogsFromD1(
+                        userId = activeUser.id,
+                        username = activeUser.username,
+                        accountId = acc,
+                        databaseId = db,
+                        apiToken = tok,
+                        repository = repository,
+                        preferencesManager = preferencesManager
+                    )
+                    changedCount += syncWorkoutProfilesForUserWithD1(activeUser.id, activeUser.username, repository, preferencesManager)
+                    syncAllSetsToExerciseLogsInternal(
+                        accountId = acc,
+                        databaseId = db,
+                        apiToken = tok,
+                        userId = activeUser.id,
+                        repository = repository,
+                        preferencesManager = preferencesManager
+                    )
+                    saveSnapshotIfChanged(activeUser.id, repository, preferencesManager, acc, db, tok)
                 }
 
-                // 4. Final duplicate sweep on D1 & local DB after all users sync
-                removeDuplicateExerciseLogsAndLocalSets(acc, db, tok, repository)
-                removeDuplicateCloudProfiles(repository, preferencesManager)
-
+                lastReconnectSyncTimeByKey[cooldownKey] = System.currentTimeMillis()
                 preferencesManager.saveLastD1Error("")
                 preferencesManager.setPendingD1Download(false)
-                if (changedCount > 0 || targetUsers.isNotEmpty()) {
+                if (changedCount > 0 || activeUser != null) {
                     preferencesManager.saveLastD1SyncTime(System.currentTimeMillis())
                 }
                 true
@@ -2871,5 +3559,34 @@ class CloudflareSyncService(val context: Context) {
     ): Boolean = withContext(Dispatchers.IO) {
         val currentUserId = preferencesManager.userIdFlow.first()
         syncOnAppOpenOrReconnect(currentUserId, repository, preferencesManager)
+    }
+
+    suspend fun syncSnapshotOnlyToD1(
+        userId: Int,
+        repository: WorkoutRepository,
+        preferencesManager: PreferencesManager
+    ): Boolean = syncMutex.withLock {
+        withContext(Dispatchers.IO) {
+            try {
+                if (userId == -1) return@withContext false
+                val (acc, db, tok) = getResolvedCredentials(preferencesManager)
+                if (acc.isBlank() || db.isBlank() || tok.isBlank()) return@withContext false
+                if (!isNetworkAvailable()) {
+                    preferencesManager.setPendingD1Upload(true)
+                    return@withContext false
+                }
+                preloadPersistentSchemaCache(acc, db, tok, preferencesManager)
+                val uploaded = saveSnapshotIfChanged(userId, repository, preferencesManager, acc, db, tok)
+                if (uploaded) {
+                    preferencesManager.setPendingD1Upload(false)
+                    preferencesManager.saveLastD1SyncTime(System.currentTimeMillis())
+                    preferencesManager.saveLastD1Error("")
+                }
+                uploaded
+            } catch (e: Exception) {
+                preferencesManager.saveLastD1Error(e.localizedMessage ?: "D1 snapshot sync error")
+                false
+            }
+        }
     }
 }

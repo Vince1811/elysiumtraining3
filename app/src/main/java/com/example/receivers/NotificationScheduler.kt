@@ -19,6 +19,7 @@ object NotificationScheduler {
     // Request Codes for PendingIntents to keep them unique
     private const val RC_WATER = 9999
     private const val RC_MEDICATION_BASE = 10000
+    private const val RC_APP_UPDATE = 19999
 
     fun scheduleWaterReminder(context: Context, intervalMins: Int) {
         if (intervalMins <= 0) return
@@ -171,9 +172,55 @@ object NotificationScheduler {
                         medication.reminderTime
                     )
                 }
+
+                // 3. GitHub Update Notifications
+                val updateNotifsEnabled = preferencesManager.updateNotificationsEnabledFlow.first()
+                if (updateNotifsEnabled) {
+                    scheduleAppUpdateCheck(context)
+                } else {
+                    cancelAppUpdateCheck(context)
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Error rescheduling alarms: ${e.message}")
             }
+        }
+    }
+
+    fun scheduleAppUpdateCheck(context: Context, intervalHours: Long = 6L) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val intent = Intent(context, NotificationReceiver::class.java).apply {
+            action = NotificationReceiver.ACTION_CHECK_APP_UPDATE
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            RC_APP_UPDATE,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val triggerAt = System.currentTimeMillis() + intervalHours.coerceAtLeast(1L) * 60L * 60L * 1000L
+        try {
+            alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+            Log.d(TAG, "Scheduled next GitHub update check in $intervalHours hours.")
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not schedule GitHub update check: ${e.message}")
+        }
+    }
+
+    fun cancelAppUpdateCheck(context: Context) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val intent = Intent(context, NotificationReceiver::class.java).apply {
+            action = NotificationReceiver.ACTION_CHECK_APP_UPDATE
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            RC_APP_UPDATE,
+            intent,
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+        )
+        if (pendingIntent != null) {
+            alarmManager.cancel(pendingIntent)
+            pendingIntent.cancel()
+            Log.d(TAG, "Cancelled periodic GitHub update check.")
         }
     }
 

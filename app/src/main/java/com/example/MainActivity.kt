@@ -1,9 +1,14 @@
 package com.example
 
+import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.Network
+import android.os.Build
 import android.os.Bundle
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -55,9 +60,24 @@ import com.example.ui.screens.*
 import com.example.ui.theme.MyApplicationTheme
 
 class MainActivity : FragmentActivity() {
+    companion object {
+        const val EXTRA_OPEN_ROUTE = "extra_open_route"
+    }
+
+    private val pendingOpenRouteState = mutableStateOf<String?>(null)
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent.getStringExtra(EXTRA_OPEN_ROUTE)?.takeIf { it.isNotBlank() }?.let { route ->
+            pendingOpenRouteState.value = route
+        }
+    }
+
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        pendingOpenRouteState.value = intent?.getStringExtra(EXTRA_OPEN_ROUTE)?.takeIf { it.isNotBlank() }
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         enableEdgeToEdge()
         val repository = (application as ElysiumApp).workoutRepository
@@ -119,21 +139,32 @@ class MainActivity : FragmentActivity() {
                 val appUpdateLabel by preferences.updateAvailableLabelFlow.collectAsState(initial = "")
                 val appUpdateMessage by preferences.updateAvailableMessageFlow.collectAsState(initial = "")
                 val appUpdateUrl by preferences.updateAvailableUrlFlow.collectAsState(initial = "")
+                val specifiedApkUrl by preferences.specifiedApkUrlFlow.collectAsState(initial = "")
+                val updateNotificationsEnabled by preferences.updateNotificationsEnabledFlow.collectAsState(initial = true)
                 val dismissedUpdateLabel by preferences.dismissedUpdateLabelFlow.collectAsState(initial = "")
 
+                val notificationPermissionLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.RequestPermission()
+                ) { /* User chose notification preference */ }
+                var requestedUpdateNotifPermission by remember { mutableStateOf(false) }
+
                 if (userId != -1 && userExistsState == true) {
-                    LaunchedEffect(userId, savedUpdateSource, savedGithubToken) {
+                    LaunchedEffect(userId, updateNotificationsEnabled) {
+                        if (updateNotificationsEnabled &&
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                            !requestedUpdateNotifPermission &&
+                            !com.example.receivers.AppUpdateNotifier.hasNotificationPermission(applicationContext)
+                        ) {
+                            requestedUpdateNotifPermission = true
+                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                    }
+
+                    LaunchedEffect(userId, savedUpdateSource, savedGithubToken, specifiedApkUrl, updateNotificationsEnabled) {
                         if (savedUpdateSource.isNotBlank()) {
-                            val res = com.example.data.GitHubUpdateChecker.checkGitHubFilesForUpdate(
+                            com.example.receivers.AppUpdateNotifier.checkAndNotifyIfUpdated(
                                 context = applicationContext,
-                                rawSource = savedUpdateSource,
-                                token = savedGithubToken
-                            )
-                            preferences.saveUpdateStatus(
-                                available = res.isUpdateAvailable,
-                                label = res.updateLabel,
-                                message = res.statusMessage,
-                                url = res.apkDownloadUrl.orEmpty()
+                                preferencesManager = preferences
                             )
                         }
                     }
@@ -173,16 +204,9 @@ class MainActivity : FragmentActivity() {
                                 }
                                 if (savedUpdateSource.isNotBlank()) {
                                     appUiScope.launch {
-                                        val res = com.example.data.GitHubUpdateChecker.checkGitHubFilesForUpdate(
+                                        com.example.receivers.AppUpdateNotifier.checkAndNotifyIfUpdated(
                                             context = applicationContext,
-                                            rawSource = savedUpdateSource,
-                                            token = savedGithubToken
-                                        )
-                                        preferences.saveUpdateStatus(
-                                            available = res.isUpdateAvailable,
-                                            label = res.updateLabel,
-                                            message = res.statusMessage,
-                                            url = res.apkDownloadUrl.orEmpty()
+                                            preferencesManager = preferences
                                         )
                                     }
                                 }
@@ -362,6 +386,15 @@ class MainActivity : FragmentActivity() {
                         }
                     }
 
+                    val pendingOpenRoute by pendingOpenRouteState
+                    LaunchedEffect(pendingOpenRoute, navController) {
+                        val targetRoute = pendingOpenRoute
+                        if (!targetRoute.isNullOrBlank()) {
+                            navigateWithState(targetRoute)
+                            pendingOpenRouteState.value = null
+                        }
+                    }
+
                     var showTopNavMenu by remember { mutableStateOf(false) }
 
                     val navItems = listOf(
@@ -526,6 +559,7 @@ class MainActivity : FragmentActivity() {
                                         )
                                     }
                                 },
+                                expandedHeight = 76.dp,
                                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                                     containerColor = MaterialTheme.colorScheme.surface
                                 )
@@ -583,15 +617,13 @@ class MainActivity : FragmentActivity() {
                                         Spacer(Modifier.width(6.dp))
                                         TextButton(
                                             onClick = {
-                                                if (appUpdateUrl.isNotBlank()) {
-                                                    try {
-                                                        activeContext.startActivity(
-                                                            android.content.Intent(
-                                                                android.content.Intent.ACTION_VIEW,
-                                                                android.net.Uri.parse(appUpdateUrl)
-                                                            )
-                                                        )
-                                                    } catch (_: Exception) {
+                                                val targetApkUrl = specifiedApkUrl.trim().ifBlank { appUpdateUrl.trim() }
+                                                if (targetApkUrl.isNotBlank()) {
+                                                    val opened = com.example.receivers.AppUpdateNotifier.openExternalUpdateUrl(
+                                                        activeContext,
+                                                        targetApkUrl
+                                                    )
+                                                    if (!opened) {
                                                         navigateWithState("settings")
                                                     }
                                                 } else {

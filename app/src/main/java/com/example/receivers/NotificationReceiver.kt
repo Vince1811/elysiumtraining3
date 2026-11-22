@@ -18,6 +18,7 @@ class NotificationReceiver : BroadcastReceiver() {
     companion object {
         const val ACTION_WATER_REMINDER = "com.example.action.WATER_REMINDER"
         const val ACTION_MEDICATION_REMINDER = "com.example.action.MEDICATION_REMINDER"
+        const val ACTION_CHECK_APP_UPDATE = "com.example.action.CHECK_APP_UPDATE"
 
         const val EXTRA_MED_ID = "extra_med_id"
         const val EXTRA_MED_NAME = "extra_med_name"
@@ -34,10 +35,20 @@ class NotificationReceiver : BroadcastReceiver() {
 
         Log.d("NotificationReceiver", "Received alarm: $action")
 
-        val prefs = com.example.data.PreferencesManager(context)
+        val prefs = com.example.data.PreferencesManager(context.applicationContext)
+        val pendingResult = goAsync()
 
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
             try {
+                if (action == ACTION_CHECK_APP_UPDATE) {
+                    val enabled = prefs.updateNotificationsEnabledFlow.first()
+                    if (enabled) {
+                        AppUpdateNotifier.checkAndNotifyIfUpdated(context.applicationContext, prefs)
+                        NotificationScheduler.scheduleAppUpdateCheck(context.applicationContext)
+                    }
+                    return@launch
+                }
+
                 // Check if the corresponding setting is enabled before showing notification
                 val isEnabled = when (action) {
                     ACTION_WATER_REMINDER -> prefs.waterRemindersEnabledFlow.first()
@@ -116,7 +127,9 @@ class NotificationReceiver : BroadcastReceiver() {
                     else -> 3000
                 }
 
-                notificationManager.notify(notificationId, builder.build())
+                if (AppUpdateNotifier.hasNotificationPermission(context)) {
+                    notificationManager.notify(notificationId, builder.build())
+                }
 
                 // Chain the next water alarm if enabled
                 if (action == ACTION_WATER_REMINDER) {
@@ -126,6 +139,8 @@ class NotificationReceiver : BroadcastReceiver() {
                 }
             } catch (e: Exception) {
                 Log.e("NotificationReceiver", "Error processing notification check/alarm", e)
+            } finally {
+                pendingResult.finish()
             }
         }
     }
