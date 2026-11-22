@@ -219,6 +219,22 @@ val ExerciseGuidesList = listOf(
         publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Done/Chest%20Dips%20Fitness%20Infographic.png"
     ),
     ExerciseGuideInfo(
+        id = "weighted_chest_dips",
+        title = "WEIGHTED CHEST DIPS",
+        category = "Upper Body Strength & Hypertrophy",
+        accentColor = 0xFF00E5FFL,
+        drawableResId = R.drawable.guide_tricep_dip,
+        targetMuscles = listOf("Lower & Mid Chest (pectoralis major)", "Anterior deltoids", "Triceps"),
+        steps = listOf(
+            "Setup: Secure a dip belt with weight plates around your waist (or hold a dumbbell between your feet) and mount parallel bars with arms locked.",
+            "Lean Forward: Hinge slightly forward at the torso, flare elbows moderately, and pull your shoulder blades down and back.",
+            "Lower Under Control: Slowly bend elbows to roughly 90° until you feel a deep, controlled stretch across your chest.",
+            "Drive Upward: Press powerfully through your palms while maintaining the forward lean to target the pectorals without swinging the added weight."
+        ),
+        executionTips = "Keep the added load still rather than swinging, brace your core hard, and stop just short of shoulder strain at the bottom.",
+        publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Done/Weighted%20Chest%20Dips%20Training%20Guide.png"
+    ),
+    ExerciseGuideInfo(
         id = "landmine_press",
         title = "LANDMINE PRESS (ONE-ARM)",
         category = "Upper Body Strength & Hypertrophy",
@@ -401,7 +417,40 @@ val ExerciseGuidesList = listOf(
             "Push forcefully through mid-foot and heels to press the sled up.",
             "Do NOT hyper-extend or aggressively lock knees at the top."
         ),
-        executionTips = "Keep your lower back and tailbone pinned firmly against the back pad to eliminate spinal compression."
+        executionTips = "Keep your lower back and tailbone pinned firmly against the back pad to eliminate spinal compression.",
+        publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Done/Leg%20Press%20Form%20and%20Muscle%20Guide.png"
+    ),
+    ExerciseGuideInfo(
+        id = "leg_extension",
+        title = "LEG EXTENSION",
+        category = "Lower Body & Core Power",
+        accentColor = 0xFF00E676L,
+        drawableResId = R.drawable.guide_leg_press,
+        targetMuscles = listOf("Quadriceps (rectus femoris, vastus lateralis, vastus medialis)"),
+        steps = listOf(
+            "Setup: Sit back firmly against the pad, align your knees with the machine pivot point, and position the ankle pad just above your ankles.",
+            "Grip & Brace: Hold the side handles tightly to stabilize your hips and torso.",
+            "Extend: Drive your shins upward smoothly until your knees reach full extension, pausing for a second to squeeze your quads.",
+            "Control Return: Lower the weight slowly back to the starting bend without letting the weight stack slam."
+        ),
+        executionTips = "Keep your hips glued to the seat and avoid swinging the weight up with momentum.",
+        publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Done/Leg%20Extension%20Quadriceps%20Guide.png"
+    ),
+    ExerciseGuideInfo(
+        id = "hamstring_curl",
+        title = "HAMSTRING CURL (LEG CURL)",
+        category = "Lower Body & Core Power",
+        accentColor = 0xFF00E676L,
+        drawableResId = R.drawable.guide_leg_press,
+        targetMuscles = listOf("Hamstrings (biceps femoris, semitendinosus, semimembranosus)", "Calves (stabilizer)"),
+        steps = listOf(
+            "Setup: Align your knees with the machine pivot and set the roller pad comfortably behind your ankles.",
+            "Stabilize: Grip the handles and brace your hips and thighs against the bench or seat pad.",
+            "Curl: Pull your heels smoothly toward your glutes in a controlled arc, squeezing your hamstrings hard at peak contraction.",
+            "Control Return: Extend your legs slowly back to the start position while maintaining constant tension."
+        ),
+        executionTips = "Keep your hips pressed flat against the pad and control the eccentric lengthening phase on every rep.",
+        publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Done/Hamstring%20Curl%20Training%20Guide.png"
     ),
     ExerciseGuideInfo(
         id = "calf_raise",
@@ -416,7 +465,8 @@ val ExerciseGuidesList = listOf(
             "Pause and squeeze calves hard at peak contraction.",
             "Lower slowly below the platform level into a full calf stretch."
         ),
-        executionTips = "Pause for a full second at the bottom stretch to eliminate the Achilles tendon bounce recoil."
+        executionTips = "Pause for a full second at the bottom stretch to eliminate the Achilles tendon bounce recoil.",
+        publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Done/Standing%20Calf%20Raises%20Guide.png"
     ),
     ExerciseGuideInfo(
         id = "knee_raise",
@@ -464,7 +514,24 @@ val ExerciseGuidesList = listOf(
             "Push: Press through your palms and push your body back up to the start position.",
             "Repeat: Do the required reps with good form and a steady tempo."
         ),
-        executionTips = "Keep your core tight, your back straight and move in a controlled way. For more challenge, add a weight vest or raise your feet."
+        executionTips = "Keep your core tight, your back straight and move in a controlled way. For more challenge, add a weight vest or raise your feet.",
+        publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Done/Push-Ups_%20Strength%20and%20Form%20Guide.png"
+    ),
+    ExerciseGuideInfo(
+        id = "wide_grip_pushup",
+        title = "WIDE GRIP PUSH-UPS",
+        category = "Conditioning & Calisthenics",
+        accentColor = 0xFFFF3D00L,
+        drawableResId = R.drawable.guide_pushup,
+        targetMuscles = listOf("Outer Chest (pectoralis major)", "Front shoulders (anterior deltoids)", "Triceps"),
+        steps = listOf(
+            "Setup: Start in a rigid high-plank position with hands placed noticeably wider than shoulder width and fingers angled slightly outward.",
+            "Brace Body: Squeeze glutes and core so head, hips, and heels stay in one straight line.",
+            "Lower Chest: Bend elbows smoothly outward at roughly 45–60° until your chest nearly touches the floor.",
+            "Press Up: Drive evenly through your palms to lock back out while keeping your chest engaged."
+        ),
+        executionTips = "Use a wider hand placement to stretch and emphasize the outer pectoral fibers without flaring elbows straight to 90°.",
+        publicImageUrl = "https://pub-04e991123ae040478d01f00462ecfb2f.r2.dev/App%20Elysium/Pictures/Done/Wide%20Grip%20Push-Ups%20Fitness%20Infographic.png"
     ),
     ExerciseGuideInfo(
         id = "incline_pushup",
@@ -759,14 +826,16 @@ fun findExerciseGuide(exerciseName: String): ExerciseGuideInfo {
             ExerciseGuidesList.first { it.id == "landmine_press" }
 
         // Incline / Decline / Flat Bench Press
-        clean.contains("incline") && (clean.contains("bench") || clean.contains("press")) -> {
+        clean.contains("incline") && (clean.contains("bench") || clean.contains("press")) &&
+            !clean.contains("overhead") && !clean.contains("shoulder") && !clean.contains("leg") && !clean.contains("fly") && !clean.contains("curl") && !clean.contains("row") -> {
             if (clean.contains("barbell") || clean.contains("smith")) {
                 ExerciseGuidesList.first { it.id == "incline_bench_barbell" }
             } else {
                 ExerciseGuidesList.first { it.id == "incline_bench" }
             }
         }
-        clean.contains("decline") && (clean.contains("bench") || clean.contains("press")) -> {
+        clean.contains("decline") && (clean.contains("bench") || clean.contains("press")) &&
+            !clean.contains("leg") && !clean.contains("fly") -> {
             if (clean.contains("dumbbell")) {
                 ExerciseGuidesList.first { it.id == "decline_bench_dumbbell" }
             } else {
@@ -791,9 +860,13 @@ fun findExerciseGuide(exerciseName: String): ExerciseGuideInfo {
         clean.contains("squat") || clean.contains("goblet") ->
             ExerciseGuidesList.first { it.id == "squat" }
 
-        // Leg Press
-        clean.contains("leg press") ->
+        // Leg Press / Leg Extension / Hamstring Curl
+        clean.contains("leg press") && !clean.contains("calf") ->
             ExerciseGuidesList.first { it.id == "leg_press" }
+        (clean.contains("leg") && clean.contains("extension")) || (clean.contains("quad") && clean.contains("extension")) ->
+            ExerciseGuidesList.first { it.id == "leg_extension" }
+        (clean.contains("hamstring") || clean.contains("leg")) && clean.contains("curl") ->
+            ExerciseGuidesList.first { it.id == "hamstring_curl" }
 
         // Lunge
         clean.contains("lunge") ->
@@ -835,6 +908,8 @@ fun findExerciseGuide(exerciseName: String): ExerciseGuideInfo {
             ExerciseGuidesList.first { it.id == "tricep_rope_pushdown" }
         clean.contains("pushdown") || clean.contains("push down") || clean.contains("push-down") || clean.contains("pressdown") || (clean.contains("tricep") && clean.contains("cable") && !clean.contains("kickback") && !clean.contains("overhead")) ->
             ExerciseGuidesList.first { it.id == "tricep_pushdown" }
+        clean.contains("weighted") && clean.contains("chest") && clean.contains("dip") ->
+            ExerciseGuidesList.first { it.id == "weighted_chest_dips" }
         clean.contains("chest") && clean.contains("dip") ->
             ExerciseGuidesList.first { it.id == "chest_dips" }
         clean.contains("dip") ->
@@ -861,6 +936,8 @@ fun findExerciseGuide(exerciseName: String): ExerciseGuideInfo {
             ExerciseGuidesList.first { it.id == "mountain_climber" }
 
         // Calisthenics
+        clean.contains("wide") && (clean.contains("pushup") || clean.contains("push up") || clean.contains("push-up")) ->
+            ExerciseGuidesList.first { it.id == "wide_grip_pushup" }
         clean.contains("decline") && (clean.contains("pushup") || clean.contains("push up") || clean.contains("push-up")) ->
             ExerciseGuidesList.first { it.id == "decline_pushup" }
         clean.contains("incline") && (clean.contains("pushup") || clean.contains("push up") || clean.contains("push-up")) ->
@@ -901,7 +978,13 @@ fun findExerciseGuideOrNull(exerciseName: String): ExerciseGuideInfo? {
         clean.contains("concentration") ||
         clean.contains("hammer") ||
         ((clean.contains("curl") || clean.contains("bicep")) && !isNonBarbellBicepCurl(clean))
-    val explicitFallbackNeeded = !(clean.contains("bench") || clean.contains("chest press") || isFlyOrCrossoverLike || clean.contains("pec") || clean.contains("landmine") || clean.contains("shadow") || clean.contains("box") || clean.contains("jab") || clean.contains("1-2") || clean.contains("slip") || clean.contains("footwork") || clean.contains("flurry") || clean.contains("deadlift") || clean.contains("rdl") || clean.contains("squat") || clean.contains("goblet") || clean.contains("leg press") || clean.contains("lunge") || clean.contains("calf") || clean.contains("lat pull") || clean.contains("pulldown") || clean.contains("row") || clean.contains("arnold") || clean.contains("shoulder press") || clean.contains("overhead press") || clean.contains("military press") || clean.contains("ohp") || clean.contains("lateral raise") || clean.contains("side raise") || isPushdownLike || clean.contains("dip") || isBicepCurlLike || clean.contains("plank") || clean.contains("knee raise") || clean.contains("hanging") || clean.contains("leg raise") || clean.contains("bicycle") || clean.contains("crunch") || clean.contains("climber") || clean.contains("mountain") || clean.contains("pushup") || clean.contains("push up") || clean.contains("push-up") || clean.contains("pullup") || clean.contains("pull up") || clean.contains("pull-up") || clean.contains("chin"))
+    val isChestPressLike = clean.contains("bench") || clean.contains("chest press") ||
+        ((clean.contains("incline") || clean.contains("decline")) && clean.contains("press") &&
+            !clean.contains("overhead") && !clean.contains("shoulder") && !clean.contains("leg"))
+    val isLegMachineLike = (clean.contains("leg") && clean.contains("extension")) ||
+        (clean.contains("quad") && clean.contains("extension")) ||
+        ((clean.contains("hamstring") || clean.contains("leg")) && clean.contains("curl"))
+    val explicitFallbackNeeded = !(isChestPressLike || isFlyOrCrossoverLike || isLegMachineLike || clean.contains("pec") || clean.contains("landmine") || clean.contains("shadow") || clean.contains("box") || clean.contains("jab") || clean.contains("1-2") || clean.contains("slip") || clean.contains("footwork") || clean.contains("flurry") || clean.contains("deadlift") || clean.contains("rdl") || clean.contains("squat") || clean.contains("goblet") || clean.contains("leg press") || clean.contains("lunge") || clean.contains("calf") || clean.contains("lat pull") || clean.contains("pulldown") || clean.contains("row") || clean.contains("arnold") || clean.contains("shoulder press") || clean.contains("overhead press") || clean.contains("military press") || clean.contains("ohp") || clean.contains("lateral raise") || clean.contains("side raise") || isPushdownLike || clean.contains("dip") || isBicepCurlLike || clean.contains("plank") || clean.contains("knee raise") || clean.contains("hanging") || clean.contains("leg raise") || clean.contains("bicycle") || clean.contains("crunch") || clean.contains("climber") || clean.contains("mountain") || clean.contains("pushup") || clean.contains("push up") || clean.contains("push-up") || clean.contains("pullup") || clean.contains("pull up") || clean.contains("pull-up") || clean.contains("chin"))
     if (explicitFallbackNeeded) {
         val wordMatch = ExerciseGuidesList.first().title.lowercase().split(" ").any { word -> word.length > 3 && clean.contains(word) }
         if (!wordMatch) return null

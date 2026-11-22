@@ -782,12 +782,17 @@ class AIStudyRepository {
     private fun normalizeCategory(raw: String, exerciseName: String): String {
         val r = raw.lowercase().trim()
         val n = exerciseName.lowercase()
-        val allowed = listOf("Chest", "Back", "Legs", "Arms", "Shoulders", "Forearms", "Calves", "Other", "Warm-Up", "Cool-Down")
+        val allowed = listOf("Chest", "Back", "Legs", "Arms", "Shoulders", "Forearms", "Calves", "Stomach", "Other", "Warm-Up", "Cool-Down")
         allowed.firstOrNull { it.equals(r, ignoreCase = true) }?.let { return it }
         return when {
             r.contains("chest") || r.contains("pec") || n.contains("bench") || n.contains("chest") || n.contains("fly") || n.contains("pushup") || n.contains("push-up") -> "Chest"
             r.contains("back") || r.contains("lat") || n.contains("pulldown") || n.contains("pullup") || n.contains("pull-up") || n.contains("chin") || n.contains("row") || n.contains("deadlift") -> "Back"
             r.contains("calf") || n.contains("calf") || n.contains("calves") -> "Calves"
+            r.contains("stomach") || r.contains("ab") || r.contains("core") || r.contains("oblique") ||
+                n.contains("crunch") || n.contains("sit-up") || n.contains("situp") || n.contains("plank") ||
+                n.contains("dragonfl") || n.contains("dragon flag") || n.contains("leg raise") || n.contains("knee raise") ||
+                n.contains("russian twist") || n.contains("ab wheel") || n.contains("dead bug") ||
+                n.contains("flutter kick") || n.contains("hollow body") || n.contains("v-up") -> "Stomach"
             r.contains("leg") || r.contains("quad") || r.contains("ham") || r.contains("glute") || n.contains("squat") || n.contains("lunge") || n.contains("leg") || n.contains("rdl") -> "Legs"
             r.contains("forearm") || n.contains("wrist") -> "Forearms"
             r.contains("arm") || r.contains("bicep") || r.contains("tricep") || n.contains("curl") || n.contains("tricep") || n.contains("pushdown") || n.contains("dip") || n.contains("skull") -> "Arms"

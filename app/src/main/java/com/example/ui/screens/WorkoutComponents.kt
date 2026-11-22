@@ -145,28 +145,22 @@ fun ActiveWorkoutItem(
                             }
                         }
                     }
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            set.exerciseName,
-                            style = MaterialTheme.typography.titleMedium.copy(fontSize = (exerciseFontSize - 1).coerceAtLeast(14).sp),
-                            fontWeight = FontWeight.ExtraBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            "${set.targetSets} sets x ${set.targetReps} reps",
-                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.secondary,
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
+                    Text(
+                        set.exerciseName,
+                        style = MaterialTheme.typography.titleMedium.copy(fontSize = (exerciseFontSize - 1).coerceAtLeast(14).sp),
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        "${set.targetSets} sets x ${set.targetReps} reps",
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.secondary,
+                        maxLines = 1,
+                        softWrap = false
+                    )
                 }
 
                 val hasGuidePicture = rememberIsExercisePictureAvailable(set.exerciseName)
@@ -184,11 +178,28 @@ fun ActiveWorkoutItem(
                             modifier = Modifier.size(20.dp)
                         )
                     }
-                } else {
-                    Spacer(Modifier.width(4.dp))
                 }
 
-                IconButton(onClick = onDeleteClick, modifier = Modifier.size(30.dp)) {
+                IconButton(
+                    onClick = onEditClick,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .testTag("exercise_edit_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Edit,
+                        contentDescription = "Edit Exercise",
+                        tint = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = onDeleteClick,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .testTag("exercise_delete_button")
+                ) {
                     Icon(
                         imageVector = Icons.Filled.Delete,
                         contentDescription = "Delete Exercise",
@@ -301,23 +312,14 @@ fun ActiveWorkoutItem(
                 }
 
                 Spacer(Modifier.width(8.dp))
-                
-                IconButton(onClick = onEditClick, modifier = Modifier.size(30.dp)) {
-                    Icon(
-                        imageVector = Icons.Filled.Edit,
-                        contentDescription = "Edit Exercise",
-                        tint = MaterialTheme.colorScheme.secondary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                Spacer(Modifier.width(8.dp))
 
                 Button(
                     onClick = onLogClick,
                     shape = RoundedCornerShape(8.dp),
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    modifier = Modifier.height(30.dp),
+                    modifier = Modifier
+                        .height(30.dp)
+                        .testTag("exercise_log_button"),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (set.completedSets >= set.targetSets) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
                         contentColor = if (set.completedSets >= set.targetSets) MaterialTheme.colorScheme.onTertiary else MaterialTheme.colorScheme.onPrimary

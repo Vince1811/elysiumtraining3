@@ -124,12 +124,12 @@ class CloudflareR2Service(val context: Context) {
                 "decline_bench_barbell", "decline_bench_dumbbell",
                 "barbell_bench_press", "bench_press",
                 "chest_fly_dumbbell", "pec_deck", "cable_crossover",
-                "chest_dips", "landmine_press",
-                "pushup", "incline_pushup", "decline_pushup",
+                "chest_dips", "weighted_chest_dips", "landmine_press",
+                "pushup", "wide_grip_pushup", "incline_pushup", "decline_pushup",
                 "bicep_curl", "bicep_21s", "hammer_curl", "concentration_curl",
                 "lat_pulldown", "cable_row", "bent_over_barbell_row", "overhead_press", "lateral_raise",
                 "tricep_pushdown", "tricep_rope_pushdown", "tricep_dip", "squat", "deadlift", "lunge",
-                "leg_press", "calf_raise", "knee_raise", "plank",
+                "leg_press", "leg_extension", "hamstring_curl", "calf_raise", "knee_raise", "plank",
                 "pullup", "bodyweight_squat", "arnold_press",
                 "mountain_climber", "bicycle_crunch",
                 "shadow_boxing_1_2", "shadow_boxing_1_2_3",
@@ -147,7 +147,7 @@ class CloudflareR2Service(val context: Context) {
                 (has("bicep") && has("curl") && !has("dumbbell") && !has("cable") && !has("preacher") && !has("spider") && !has("reverse") && !has("ez")) ||
                     (has("barbell") && has("curl") && !has("reverse") && !has("wrist") && !has("drag") && !has("cheat") && !has("spider")) -> "bicep_curl"
                 has("incline") && has("bench") && has("barbell") -> "incline_bench_barbell"
-                has("incline") && (has("dumbbell") || has("bench")) -> "incline_bench"
+                has("incline") && (has("dumbbell") || has("bench") || has("press")) && !has("fly") && !has("curl") && !has("row") && !has("leg") && !has("shoulder") -> "incline_bench"
                 has("decline") && (has("dumbbell") || hasWord("db")) && has("bench") -> "decline_bench_dumbbell"
                 has("decline") && has("bench") -> "decline_bench_barbell"
                 has("barbell") && has("bench") -> "barbell_bench_press"
@@ -157,8 +157,10 @@ class CloudflareR2Service(val context: Context) {
                 (has("chest") || has("dumbbell") || has("floor") || has("flat")) && !has("rear") && !has("reverse") && (has("fly") || has("flys") || has("flyes") || has("flies")) -> "chest_fly_dumbbell"
                 has("pec") && has("deck") -> "pec_deck"
                 has("cable") && has("crossover") && !has("rear") && !has("reverse") && !has("high to low") -> "cable_crossover"
+                has("weighted") && has("chest") && has("dip") -> "weighted_chest_dips"
                 has("chest") && has("dip") -> "chest_dips"
                 has("landmine") -> "landmine_press"
+                has("wide") && (has("push up") || has("pushup") || has("push ups")) -> "wide_grip_pushup"
                 has("decline") && has("push") -> "decline_pushup"
                 has("incline") && has("push") -> "incline_pushup"
                 has("push up") || has("pushup") || has("push ups") -> "pushup"
@@ -176,7 +178,9 @@ class CloudflareR2Service(val context: Context) {
                 has("squat") -> "squat"
                 has("deadlift") || has("rdl") -> "deadlift"
                 has("lunge") -> "lunge"
-                has("leg") && has("press") -> "leg_press"
+                has("leg") && has("press") && !has("calf") -> "leg_press"
+                (has("leg") && has("extension")) || (has("quad") && has("extension")) -> "leg_extension"
+                (has("hamstring") || has("leg")) && has("curl") -> "hamstring_curl"
                 has("calf") && has("raise") -> "calf_raise"
                 has("knee") && has("raise") -> "knee_raise"
                 has("plank") -> "plank"
@@ -195,7 +199,9 @@ class CloudflareR2Service(val context: Context) {
             "pec_deck",
             "cable_crossover",
             "chest_dips",
+            "weighted_chest_dips",
             "landmine_press",
+            "wide_grip_pushup",
             "incline_pushup",
             "decline_pushup",
             "concentration_curl",
@@ -203,6 +209,8 @@ class CloudflareR2Service(val context: Context) {
             "bicep_21s",
             "tricep_rope_pushdown",
             "bent_over_barbell_row",
+            "leg_extension",
+            "hamstring_curl",
             "shadow_boxing_1_2",
             "shadow_boxing_1_2_3",
             "shadow_boxing_slip",

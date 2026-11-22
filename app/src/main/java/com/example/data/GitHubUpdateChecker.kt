@@ -16,7 +16,8 @@ data class GitHubUpdateCheckResult(
     val isUpdateAvailable: Boolean,
     val updateLabel: String = "",
     val statusMessage: String,
-    val apkDownloadUrl: String? = null
+    val apkDownloadUrl: String? = null,
+    val releasesPageUrl: String? = null
 )
 
 object GitHubUpdateChecker {
@@ -474,7 +475,8 @@ object GitHubUpdateChecker {
             isUpdateAvailable = updateAvailable,
             updateLabel = label,
             statusMessage = status,
-            apkDownloadUrl = apkUrl.ifBlank { null }
+            apkDownloadUrl = apkUrl.ifBlank { null },
+            releasesPageUrl = "https://github.com/$repoSlug/releases"
         )
     }
 

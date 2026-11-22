@@ -2556,13 +2556,18 @@ fun SettingsScreen(
         )
         val savedGithubToken by preferencesManager.githubUpdateTokenFlow.collectAsState(initial = "")
         val isUpdateAvailableSaved by preferencesManager.updateAvailableFlow.collectAsState(initial = false)
+        val dismissedUpdateLabelSaved by preferencesManager.dismissedUpdateLabelFlow.collectAsState(initial = "")
         val currentUserIdForSync by preferencesManager.userIdFlow.collectAsState(initial = -1)
         var isCheckingUpdate by remember { mutableStateOf(false) }
+        var hasAutoCheckedOnEnter by remember { mutableStateOf(false) }
         var showUpdateRepoDialog by remember { mutableStateOf(false) }
         var showUpdateResultDialog by remember { mutableStateOf(false) }
         var updateResultTitle by remember { mutableStateOf("App Update Check") }
         var updateResultMessage by remember { mutableStateOf("") }
+        var updateResultLabel by remember { mutableStateOf("") }
+        var updateResultAvailable by remember { mutableStateOf(false) }
         var updateResultApkUrl by remember { mutableStateOf<String?>(null) }
+        var updateResultReleasesUrl by remember { mutableStateOf<String?>(null) }
 
         var updateSourceInput by remember { mutableStateOf("") }
         var githubTokenInput by remember { mutableStateOf("") }
@@ -2579,65 +2584,75 @@ fun SettingsScreen(
             }
         }
 
-        val runGitHubUpdateCheck: (String, String) -> Unit = { repoSource, repoToken ->
-            isCheckingUpdate = true
-            scope.launch {
-                // Also sync latest cloud data & exercise pictures automatically
-                if (currentUserIdForSync != -1) {
-                    launch {
-                        try {
-                            com.example.data.CloudflareSyncService(context.applicationContext)
-                                .syncOnAppOpenOrReconnect(currentUserIdForSync, repository, preferencesManager)
-                        } catch (_: Exception) {
+        val runGitHubUpdateCheck: (String, String, Boolean) -> Unit = { repoSource, repoToken, isAutoCheck ->
+            if (!isCheckingUpdate) {
+                isCheckingUpdate = true
+                scope.launch {
+                    // Also sync latest cloud data & exercise pictures automatically
+                    if (currentUserIdForSync != -1) {
+                        launch {
+                            try {
+                                com.example.data.CloudflareSyncService(context.applicationContext)
+                                    .syncOnAppOpenOrReconnect(currentUserIdForSync, repository, preferencesManager)
+                            } catch (_: Exception) {
+                            }
+                        }
+                        launch {
+                            try {
+                                com.example.data.CloudflareR2Service(context.applicationContext)
+                                    .syncAllPicturesOnStartup(
+                                        userId = currentUserIdForSync,
+                                        repository = repository,
+                                        preferencesManager = preferencesManager,
+                                        bundledGuides = ExerciseGuidesList.map { it.id to it.drawableResId }
+                                    )
+                            } catch (_: Exception) {
+                            }
                         }
                     }
-                    launch {
-                        try {
-                            com.example.data.CloudflareR2Service(context.applicationContext)
-                                .syncAllPicturesOnStartup(
-                                    userId = currentUserIdForSync,
-                                    repository = repository,
-                                    preferencesManager = preferencesManager,
-                                    bundledGuides = ExerciseGuidesList.map { it.id to it.drawableResId }
-                                )
-                        } catch (_: Exception) {
-                        }
-                    }
-                }
 
-                val res = com.example.data.GitHubUpdateChecker.checkGitHubFilesForUpdate(
-                    context = context.applicationContext,
-                    rawSource = repoSource,
-                    token = repoToken
-                )
-                preferencesManager.saveUpdateStatus(
-                    available = res.isUpdateAvailable,
-                    label = res.updateLabel,
-                    message = res.statusMessage,
-                    url = res.apkDownloadUrl.orEmpty()
-                )
-                isCheckingUpdate = false
-                if (res.isUpdateAvailable && !res.apkDownloadUrl.isNullOrBlank()) {
-                    try {
-                        context.startActivity(
-                            Intent(Intent.ACTION_VIEW, Uri.parse(res.apkDownloadUrl))
-                        )
-                    } catch (_: Exception) {
-                        updateResultTitle = "Update Available${if (res.updateLabel.isNotBlank()) ": ${res.updateLabel}" else ""}"
-                        updateResultMessage = res.statusMessage
-                        updateResultApkUrl = res.apkDownloadUrl
-                        showUpdateResultDialog = true
-                    }
-                } else {
+                    val res = com.example.data.GitHubUpdateChecker.checkGitHubFilesForUpdate(
+                        context = context.applicationContext,
+                        rawSource = repoSource,
+                        token = repoToken
+                    )
+                    preferencesManager.saveUpdateStatus(
+                        available = res.isUpdateAvailable,
+                        label = res.updateLabel,
+                        message = res.statusMessage,
+                        url = res.apkDownloadUrl.orEmpty()
+                    )
+                    isCheckingUpdate = false
+                    updateResultAvailable = res.isUpdateAvailable
+                    updateResultLabel = res.updateLabel
                     updateResultTitle = if (res.isUpdateAvailable) {
                         "Update Available${if (res.updateLabel.isNotBlank()) ": ${res.updateLabel}" else ""}"
                     } else {
                         "App Version Check"
                     }
-                    updateResultMessage = res.statusMessage
+                    updateResultMessage = if (res.isUpdateAvailable) {
+                        "${res.statusMessage}\n\nA newer version is available. Would you like to update now?"
+                    } else {
+                        res.statusMessage
+                    }
                     updateResultApkUrl = res.apkDownloadUrl
-                    showUpdateResultDialog = true
+                    updateResultReleasesUrl = res.releasesPageUrl
+                    val alreadyDismissed = isAutoCheck &&
+                        res.updateLabel.isNotBlank() &&
+                        dismissedUpdateLabelSaved == res.updateLabel
+                    if (!isAutoCheck || (res.isUpdateAvailable && !alreadyDismissed)) {
+                        showUpdateResultDialog = true
+                    }
                 }
+            }
+        }
+
+        LaunchedEffect(savedUpdateSource, savedGithubToken) {
+            if (!hasAutoCheckedOnEnter) {
+                hasAutoCheckedOnEnter = true
+                val effectiveSource = savedUpdateSource.trim()
+                    .ifBlank { com.example.data.PreferencesManager.DEFAULT_GITHUB_UPDATE_URL }
+                runGitHubUpdateCheck(effectiveSource, savedGithubToken.trim(), true)
             }
         }
 
@@ -2654,7 +2669,7 @@ fun SettingsScreen(
                     onClick = {
                         val effectiveSource = savedUpdateSource.trim()
                             .ifBlank { com.example.data.PreferencesManager.DEFAULT_GITHUB_UPDATE_URL }
-                        runGitHubUpdateCheck(effectiveSource, savedGithubToken.trim())
+                        runGitHubUpdateCheck(effectiveSource, savedGithubToken.trim(), false)
                     },
                     enabled = !isCheckingUpdate,
                     modifier = Modifier
@@ -2733,7 +2748,7 @@ fun SettingsScreen(
                                 preferencesManager.saveGithubUpdateToken(tokenTrimmed)
                                 showUpdateRepoDialog = false
                                 if (repoTrimmed.isNotBlank()) {
-                                    runGitHubUpdateCheck(repoTrimmed, tokenTrimmed)
+                                    runGitHubUpdateCheck(repoTrimmed, tokenTrimmed, false)
                                 }
                             }
                         }
@@ -2750,6 +2765,8 @@ fun SettingsScreen(
         }
 
         if (showUpdateResultDialog) {
+            val targetInstallUrl = updateResultApkUrl?.takeIf { it.isNotBlank() }
+                ?: if (updateResultAvailable) updateResultReleasesUrl?.takeIf { it.isNotBlank() } else null
             AlertDialog(
                 onDismissRequest = { showUpdateResultDialog = false },
                 title = { Text(updateResultTitle) },
@@ -2760,43 +2777,65 @@ fun SettingsScreen(
                     )
                 },
                 confirmButton = {
-                    if (!updateResultApkUrl.isNullOrBlank()) {
+                    if (targetInstallUrl != null) {
                         Button(
                             onClick = {
-                                val apkLink = updateResultApkUrl!!
                                 showUpdateResultDialog = false
                                 try {
                                     context.startActivity(
-                                        Intent(Intent.ACTION_VIEW, Uri.parse(apkLink))
+                                        Intent(Intent.ACTION_VIEW, Uri.parse(targetInstallUrl))
                                     )
                                 } catch (e: Exception) {
                                     android.widget.Toast.makeText(
                                         context,
-                                        "Could not start APK download: ${e.localizedMessage}",
+                                        "Could not open update package: ${e.localizedMessage}",
                                         android.widget.Toast.LENGTH_SHORT
                                     ).show()
                                 }
                             },
-                            modifier = Modifier.testTag("open_app_update_download_button")
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .testTag("open_app_update_download_button")
                         ) {
-                            Text("Download APK")
+                            Text(if (!updateResultApkUrl.isNullOrBlank()) "Update Now" else "View Releases")
                         }
                     } else {
-                        Button(onClick = { showUpdateResultDialog = false }) {
+                        Button(
+                            onClick = { showUpdateResultDialog = false },
+                            modifier = Modifier.heightIn(min = 48.dp)
+                        ) {
                             Text("OK")
                         }
                     }
                 },
                 dismissButton = {
-                    TextButton(
-                        onClick = {
-                            showUpdateResultDialog = false
-                            updateSourceInput = savedUpdateSource
-                            githubTokenInput = savedGithubToken
-                            showUpdateRepoDialog = true
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        TextButton(
+                            onClick = {
+                                showUpdateResultDialog = false
+                                updateSourceInput = savedUpdateSource
+                                githubTokenInput = savedGithubToken
+                                showUpdateRepoDialog = true
+                            },
+                            modifier = Modifier.heightIn(min = 48.dp)
+                        ) {
+                            Text("Change Repo")
                         }
-                    ) {
-                        Text("Change Repo")
+                        if (updateResultAvailable) {
+                            TextButton(
+                                onClick = {
+                                    showUpdateResultDialog = false
+                                    scope.launch {
+                                        if (updateResultLabel.isNotBlank()) {
+                                            preferencesManager.dismissUpdateNotification(updateResultLabel)
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.heightIn(min = 48.dp)
+                            ) {
+                                Text("Later")
+                            }
+                        }
                     }
                 }
             )

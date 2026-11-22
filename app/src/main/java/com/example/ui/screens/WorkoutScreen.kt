@@ -57,9 +57,11 @@ import androidx.compose.material.icons.filled.DocumentScanner
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.PlayArrow
@@ -483,6 +485,7 @@ class WorkoutViewModel(
                     repository.insertCategory(WorkoutCategory(name = "Shoulders"))
                     repository.insertCategory(WorkoutCategory(name = "Forearms"))
                     repository.insertCategory(WorkoutCategory(name = "Calves"))
+                    repository.insertCategory(WorkoutCategory(name = "Stomach"))
                     repository.insertCategory(WorkoutCategory(name = "Other"))
                     repository.insertCategory(WorkoutCategory(name = "Warm-Up"))
                     repository.insertCategory(WorkoutCategory(name = "Cool-Down"))
@@ -498,6 +501,9 @@ class WorkoutViewModel(
                     }
                     if (currentCats.none { it.name.equals("Calves", ignoreCase = true) }) {
                         repository.insertCategory(WorkoutCategory(name = "Calves"))
+                    }
+                    if (currentCats.none { it.name.equals("Stomach", ignoreCase = true) }) {
+                        repository.insertCategory(WorkoutCategory(name = "Stomach"))
                     }
                     if (currentCats.none { it.name.equals("Other", ignoreCase = true) }) {
                         repository.insertCategory(WorkoutCategory(name = "Other"))
@@ -1897,6 +1903,7 @@ val performSwapIfNeeded: () -> Unit = {
     }
 } else {
                 // Routine Profiles section (User added profiles only)
+                var expandedProfileIds by remember { mutableStateOf(emptySet<Int>()) }
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
                     item {
                         Button(
@@ -2088,7 +2095,7 @@ val performSwapIfNeeded: () -> Unit = {
                             }
                         }
                     } else {
-                        items(profiles) { profile ->
+                        items(profiles, key = { it.id }) { profile ->
                             // Existing profile displaying logic
                             val exercisesList = remember(profile.exercisesJson) {
                                 try {
@@ -2097,12 +2104,23 @@ val performSwapIfNeeded: () -> Unit = {
                                     emptyList<ProfileExercise>()
                                 }
                             }
+                            val isProfileExpanded = profile.id in expandedProfileIds
 
                             Card(
-                                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 16.dp)
+                                    .testTag("workout_profile_card_${profile.id}"),
                                 shape = RoundedCornerShape(16.dp),
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                                onClick = {
+                                    expandedProfileIds = if (isProfileExpanded) {
+                                        expandedProfileIds - profile.id
+                                    } else {
+                                        expandedProfileIds + profile.id
+                                    }
+                                }
                             ) {
                                 Column(modifier = Modifier.padding(16.dp)) {
                                     Row(
@@ -2124,9 +2142,19 @@ val performSwapIfNeeded: () -> Unit = {
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
                                             }
+                                            if (!isProfileExpanded) {
+                                                Text(
+                                                    text = "${exercisesList.size} exercise${if (exercisesList.size == 1) "" else "s"} • Tap to expand",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+                                                )
+                                            }
                                         }
 
-                                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
                                             IconButton(
                                                 onClick = {
                                                     viewModel.loadProfileToToday(profile)
@@ -2164,123 +2192,130 @@ val performSwapIfNeeded: () -> Unit = {
                                                     tint = MaterialTheme.colorScheme.error
                                                 )
                                             }
+                                            Icon(
+                                                imageVector = if (isProfileExpanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                                                contentDescription = if (isProfileExpanded) "Collapse Profile" else "Expand Profile",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
                                         }
                                     }
 
-                                    Spacer(Modifier.height(8.dp))
-                                    HorizontalDivider()
-                                    Spacer(Modifier.height(8.dp))
+                                    if (isProfileExpanded) {
+                                        Spacer(Modifier.height(8.dp))
+                                        HorizontalDivider()
+                                        Spacer(Modifier.height(8.dp))
 
-                                    Text(
-                                        "Exercises (Checked = Done in Profile):",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                    Spacer(Modifier.height(6.dp))
+                                        Text(
+                                            "Exercises (Checked = Done in Profile):",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Spacer(Modifier.height(6.dp))
 
-                                    exercisesList.forEachIndexed { idx, exercise ->
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                                Checkbox(
-                                                    checked = exercise.isCompleted,
-                                                    onCheckedChange = { isChecked ->
-                                                        val updated = exercisesList.toMutableList()
-                                                        updated[idx] = exercise.copy(isCompleted = isChecked)
-                                                        viewModel.saveWorkoutProfile(profile.id, profile.name, profile.notes, updated)
-                                                    }
-                                                )
-                                                Column {
-                                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                                        Text(
-                                                            text = exercise.name,
-                                                            style = MaterialTheme.typography.bodyLarge,
-                                                            fontWeight = FontWeight.Medium,
-                                                            textDecoration = if (exercise.isCompleted) androidx.compose.ui.text.style.TextDecoration.LineThrough else null
-                                                        )
-                                                        val hasProfileGuidePicture = rememberIsExercisePictureAvailable(exercise.name, preferences)
-                                                        if (hasProfileGuidePicture) {
-                                                            Spacer(Modifier.width(4.dp))
-                                                            IconButton(
-                                                                onClick = {
-                                                                    showFullOverviewInitially = false
-                                                                    selectedExerciseGuideName = exercise.name
-                                                                },
-                                                                modifier = Modifier.size(32.dp)
-                                                            ) {
-                                                                Icon(
-                                                                    imageVector = Icons.Filled.Info,
-                                                                    contentDescription = "View exercise guide",
-                                                                    tint = MaterialTheme.colorScheme.primary,
-                                                                    modifier = Modifier.size(18.dp)
+                                        exercisesList.forEachIndexed { idx, exercise ->
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                                    Checkbox(
+                                                        checked = exercise.isCompleted,
+                                                        onCheckedChange = { isChecked ->
+                                                            val updated = exercisesList.toMutableList()
+                                                            updated[idx] = exercise.copy(isCompleted = isChecked)
+                                                            viewModel.saveWorkoutProfile(profile.id, profile.name, profile.notes, updated)
+                                                        }
+                                                    )
+                                                    Column {
+                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                            Text(
+                                                                text = exercise.name,
+                                                                style = MaterialTheme.typography.bodyLarge,
+                                                                fontWeight = FontWeight.Medium,
+                                                                textDecoration = if (exercise.isCompleted) androidx.compose.ui.text.style.TextDecoration.LineThrough else null
+                                                            )
+                                                            val hasProfileGuidePicture = rememberIsExercisePictureAvailable(exercise.name, preferences)
+                                                            if (hasProfileGuidePicture) {
+                                                                Spacer(Modifier.width(4.dp))
+                                                                IconButton(
+                                                                    onClick = {
+                                                                        showFullOverviewInitially = false
+                                                                        selectedExerciseGuideName = exercise.name
+                                                                    },
+                                                                    modifier = Modifier.size(32.dp)
+                                                                ) {
+                                                                    Icon(
+                                                                        imageVector = Icons.Filled.Info,
+                                                                        contentDescription = "View exercise guide",
+                                                                        tint = MaterialTheme.colorScheme.primary,
+                                                                        modifier = Modifier.size(18.dp)
+                                                                    )
+                                                                }
+                                                            }
+                                                            if (exercise.isSuperSet) {
+                                                                Spacer(Modifier.width(8.dp))
+                                                                Text(
+                                                                    text = "SUPER SET 🔥",
+                                                                    style = MaterialTheme.typography.labelSmall,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    color = MaterialTheme.colorScheme.primary
                                                                 )
                                                             }
                                                         }
-                                                        if (exercise.isSuperSet) {
-                                                            Spacer(Modifier.width(8.dp))
-                                                            Text(
-                                                                text = "SUPER SET 🔥",
-                                                                style = MaterialTheme.typography.labelSmall,
-                                                                fontWeight = FontWeight.Bold,
-                                                                color = MaterialTheme.colorScheme.primary
-                                                            )
-                                                        }
+                                                        Text(
+                                                            text = "Target: ${exercise.targetSets} sets x ${exercise.targetReps} reps" + (if (exercise.targetWeightKg > 0) " @ ${exercise.targetWeightKg}kg" else ""),
+                                                            style = MaterialTheme.typography.bodySmall,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
                                                     }
-                                                    Text(
-                                                        text = "Target: ${exercise.targetSets} sets x ${exercise.targetReps} reps" + (if (exercise.targetWeightKg > 0) " @ ${exercise.targetWeightKg}kg" else ""),
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
                                                 }
-                                            }
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                            ) {
-                                                SuggestionChip(
-                                                    onClick = {},
-                                                    label = { Text(exercise.category) }
-                                                )
-                                                FilledIconButton(
-                                                    onClick = {
-                                                        viewModel.addIndividualProfileExerciseToActive(exercise)
-                                                    },
-                                                    modifier = Modifier.size(32.dp),
-                                                    colors = IconButtonDefaults.filledIconButtonColors(
-                                                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                                    )
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                                                 ) {
-                                                    Icon(
-                                                        imageVector = Icons.Filled.Add,
-                                                        contentDescription = "Add exercise to active tracker",
-                                                        modifier = Modifier.size(16.dp)
+                                                    SuggestionChip(
+                                                        onClick = {},
+                                                        label = { Text(exercise.category) }
                                                     )
+                                                    FilledIconButton(
+                                                        onClick = {
+                                                            viewModel.addIndividualProfileExerciseToActive(exercise)
+                                                        },
+                                                        modifier = Modifier.size(32.dp),
+                                                        colors = IconButtonDefaults.filledIconButtonColors(
+                                                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                                        )
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Filled.Add,
+                                                            contentDescription = "Add exercise to active tracker",
+                                                            modifier = Modifier.size(16.dp)
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }
-                                    }
 
-                                    if (exercisesList.isNotEmpty()) {
-                                        Spacer(Modifier.height(12.dp))
-                                        FilledTonalButton(
-                                            onClick = {
-                                                viewModel.loadProfileToToday(profile)
-                                                activeSubTab = 0
-                                            },
-                                            modifier = Modifier.fillMaxWidth(),
-                                            shape = RoundedCornerShape(8.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Filled.PlayArrow,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Spacer(Modifier.width(8.dp))
-                                            Text("Add All to Active Tracker", fontWeight = FontWeight.Bold)
+                                        if (exercisesList.isNotEmpty()) {
+                                            Spacer(Modifier.height(12.dp))
+                                            FilledTonalButton(
+                                                onClick = {
+                                                    viewModel.loadProfileToToday(profile)
+                                                    activeSubTab = 0
+                                                },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                shape = RoundedCornerShape(8.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.PlayArrow,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(Modifier.width(8.dp))
+                                                Text("Add All to Active Tracker", fontWeight = FontWeight.Bold)
+                                            }
                                         }
                                     }
                                 }
@@ -2647,29 +2682,12 @@ val performSwapIfNeeded: () -> Unit = {
                         }
                     }
 
-                    Box(modifier = Modifier.fillMaxWidth()) {
-                        OutlinedTextField(
-                            value = profileExerciseInputName,
-                            onValueChange = {},
-                            readOnly = true,
-                            placeholder = { Text("Select Exercise") },
-                            label = { Text("Exercise Name") },
-                            trailingIcon = {
-                                Icon(Icons.Default.ArrowDropDown, contentDescription = "Select exercise")
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Box(
-                            modifier = Modifier
-                                .matchParentSize()
-                                .clickable { expandedProfileExerciseDropdown = !expandedProfileExerciseDropdown }
-                        )
-                        DropdownMenu(
-                            expanded = expandedProfileExerciseDropdown,
-                            onDismissRequest = { expandedProfileExerciseDropdown = false },
-                            modifier = Modifier.fillMaxWidth(0.8f).heightIn(max = 280.dp)
-                        ) {
-                            val list = if (profileExerciseInputCategory == "Arms") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            val profileCategoryList = if (profileExerciseInputCategory == "Arms") {
                                 when (profileArmSubgroup) {
                                     "Biceps" -> BicepExercisesList
                                     "Triceps" -> TricepExercisesList
@@ -2677,14 +2695,98 @@ val performSwapIfNeeded: () -> Unit = {
                                 }
                             } else {
                                 categorizedExercises[profileExerciseInputCategory] ?: globalExercises
+                            }.distinct()
+                            val profileSearchQuery = profileExerciseInputName.trim()
+                            val profileDropdownResults = remember(profileSearchQuery, profileCategoryList, categorizedExercises) {
+                                if (profileSearchQuery.isBlank()) {
+                                    profileCategoryList.map { it to profileExerciseInputCategory }
+                                } else {
+                                    val inCurrent = profileCategoryList
+                                        .filter { it.contains(profileSearchQuery, ignoreCase = true) }
+                                        .map { it to profileExerciseInputCategory }
+                                    val currentSet = inCurrent.map { it.first.lowercase() }.toSet()
+                                    val inOtherCats = categorizedExercises.entries.flatMap { (catName, list) ->
+                                        list.filter {
+                                            it.contains(profileSearchQuery, ignoreCase = true) &&
+                                                it.lowercase() !in currentSet
+                                        }.map { it to catName }
+                                    }.distinctBy { it.first.lowercase() }
+                                    (inCurrent + inOtherCats).take(50)
+                                }
                             }
-                            list.distinct().forEach { ex ->
-                                DropdownMenuItem(
-                                    text = { Text(ex) },
-                                    onClick = {
-                                        profileExerciseInputName = ex
-                                        expandedProfileExerciseDropdown = false
+                            OutlinedTextField(
+                                value = profileExerciseInputName,
+                                onValueChange = {
+                                    profileExerciseInputName = it
+                                    expandedProfileExerciseDropdown = true
+                                },
+                                readOnly = false,
+                                singleLine = true,
+                                placeholder = { Text("Search or type exercise...") },
+                                label = { Text("Exercise Name") },
+                                leadingIcon = {
+                                    Icon(Icons.Filled.Search, contentDescription = "Search exercise")
+                                },
+                                trailingIcon = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (profileExerciseInputName.isNotEmpty()) {
+                                            IconButton(onClick = {
+                                                profileExerciseInputName = ""
+                                                expandedProfileExerciseDropdown = true
+                                            }) {
+                                                Icon(Icons.Filled.Close, contentDescription = "Clear exercise search")
+                                            }
+                                        }
+                                        IconButton(onClick = { expandedProfileExerciseDropdown = !expandedProfileExerciseDropdown }) {
+                                            Icon(Icons.Default.ArrowDropDown, contentDescription = "Toggle exercise list")
+                                        }
                                     }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("profile_add_exercise_search_field")
+                            )
+                            DropdownMenu(
+                                expanded = expandedProfileExerciseDropdown && profileDropdownResults.isNotEmpty(),
+                                onDismissRequest = { expandedProfileExerciseDropdown = false },
+                                properties = androidx.compose.ui.window.PopupProperties(focusable = false),
+                                modifier = Modifier.fillMaxWidth(0.8f).heightIn(max = 280.dp)
+                            ) {
+                                profileDropdownResults.forEach { (ex, catLabel) ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                if (catLabel == profileExerciseInputCategory) ex else "$ex ($catLabel)"
+                                            )
+                                        },
+                                        onClick = {
+                                            profileExerciseInputName = ex
+                                            if (catLabel.isNotBlank() && catLabel != profileExerciseInputCategory) {
+                                                profileExerciseInputCategory = catLabel
+                                            }
+                                            expandedProfileExerciseDropdown = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        val isProfilePicAvailable = rememberIsExercisePictureAvailable(profileExerciseInputName, preferences)
+                        if (profileExerciseInputName.isNotBlank() && isProfilePicAvailable) {
+                            Spacer(Modifier.width(8.dp))
+                            IconButton(
+                                onClick = {
+                                    showFullOverviewInitially = false
+                                    selectedExerciseGuideName = profileExerciseInputName
+                                },
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .testTag("profile_add_exercise_picture_eye_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Visibility,
+                                    contentDescription = "View exercise picture",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(24.dp)
                                 )
                             }
                         }
@@ -2985,35 +3087,88 @@ val performSwapIfNeeded: () -> Unit = {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(modifier = Modifier.weight(1f)) {
+                            val searchQuery = name.trim()
+                            val activeCatName = activeCategory?.name.orEmpty()
+                            val filteredAddResults = remember(searchQuery, combinedExercises, categorizedExercises, activeCatName) {
+                                if (searchQuery.isBlank()) {
+                                    combinedExercises.map { it to activeCatName }
+                                } else {
+                                    val inCurrent = combinedExercises
+                                        .filter { it.contains(searchQuery, ignoreCase = true) }
+                                        .map { it to activeCatName }
+                                    val currentSet = inCurrent.map { it.first.lowercase() }.toSet()
+                                    val inOtherCats = categorizedExercises.entries.flatMap { (catName, list) ->
+                                        list.filter {
+                                            it.contains(searchQuery, ignoreCase = true) &&
+                                                it.lowercase() !in currentSet
+                                        }.map { it to catName }
+                                    }.distinctBy { it.first.lowercase() }
+                                    (inCurrent + inOtherCats).take(50)
+                                }
+                            }
                             OutlinedTextField(
                                 value = name,
-                                onValueChange = {},
-                                readOnly = true,
-                                placeholder = { Text("Select Exercise") },
+                                onValueChange = {
+                                    name = it
+                                    expandedExercise = true
+                                },
+                                readOnly = false,
+                                singleLine = true,
+                                placeholder = { Text("Search or type exercise...") },
                                 label = { Text("Exercise") },
-                                trailingIcon = {
+                                leadingIcon = {
                                     Icon(
-                                        imageVector = Icons.Default.ArrowDropDown,
-                                        contentDescription = "Select exercise"
+                                        imageVector = Icons.Filled.Search,
+                                        contentDescription = "Search exercise"
                                     )
+                                },
+                                trailingIcon = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (name.isNotEmpty()) {
+                                            IconButton(onClick = {
+                                                name = ""
+                                                expandedExercise = true
+                                            }) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Close,
+                                                    contentDescription = "Clear exercise search"
+                                                )
+                                            }
+                                        }
+                                        IconButton(onClick = { expandedExercise = !expandedExercise }) {
+                                            Icon(
+                                                imageVector = Icons.Default.ArrowDropDown,
+                                                contentDescription = "Select exercise"
+                                            )
+                                        }
+                                    }
                                 },
                                 modifier = Modifier.fillMaxWidth().testTag("add_exercise_dropdown_field")
                             )
-                            Box(
-                                modifier = Modifier
-                                    .matchParentSize()
-                                    .clickable { expandedExercise = !expandedExercise }
-                            )
                             DropdownMenu(
-                                expanded = expandedExercise,
+                                expanded = expandedExercise && filteredAddResults.isNotEmpty(),
                                 onDismissRequest = { expandedExercise = false },
+                                properties = androidx.compose.ui.window.PopupProperties(focusable = false),
                                 modifier = Modifier.fillMaxWidth(0.8f).heightIn(max = 280.dp)
                             ) {
-                                combinedExercises.forEach { option ->
+                                filteredAddResults.forEach { (option, optionCategory) ->
                                     DropdownMenuItem(
-                                        text = { Text(option) },
+                                        text = {
+                                            Text(
+                                                if (optionCategory.isBlank() || optionCategory == activeCatName) {
+                                                    option
+                                                } else {
+                                                    "$option ($optionCategory)"
+                                                }
+                                            )
+                                        },
                                         onClick = {
                                             name = option
+                                            if (optionCategory.isNotBlank() && optionCategory != activeCatName) {
+                                                categories.firstOrNull { it.name.equals(optionCategory, ignoreCase = true) }?.let { matchedCat ->
+                                                    selectedCategory = matchedCat
+                                                }
+                                            }
                                             val lastReps = exerciseLastRepsMap[option]
                                             if (lastReps != null) {
                                                 targetReps = lastReps.toString()
